@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Inference Infrastructure: interactive serving map</title>
+<style>
+:root{
+  color-scheme:light;
+  --page:#f9f9f7; --surface:#fcfcfb; --node:#ffffff; --node-2:#f0efea; --zone:#f3f2ee;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --muted:#898781;
+  --hair:#e1e0d9; --node-stroke:#b4b3aa; --border:rgba(11,11,11,.12);
+  --c-pcie:#2a78d6; --c-scaleout:#eb6834; --c-scaleup:#008300; --c-frontend:#6250d6;
+  --c-mem:#eda100; --c-storage:#1baf7a; --c-mgmt:#898781;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --page:#0d0d0d; --surface:#1a1a19; --node:#252523; --node-2:#30302d; --zone:#141413;
+  --text-primary:#f0efec; --text-secondary:#c3c2b7; --muted:#898781;
+  --hair:#2c2c2a; --node-stroke:#5b5a54; --border:rgba(255,255,255,.12);
+  --c-pcie:#3987e5; --c-scaleout:#d95926; --c-scaleup:#008300; --c-frontend:#9085e9;
+  --c-mem:#c98500; --c-storage:#199e70; --c-mgmt:#898781;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text-primary);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+button{font:inherit;color:inherit;cursor:pointer}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:22px 28px 0}
+.top h1{margin:0;font-size:21px;font-weight:650;letter-spacing:-.01em}
+.top p{margin:2px 0 0;color:var(--text-secondary)}
+.theme{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;white-space:nowrap}
+.top-r{display:flex;gap:10px;align-items:center;flex:none}
+.pages{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)}
+.pages a{padding:6px 13px;text-decoration:none;color:inherit;font-size:13.5px}
+.pages a[aria-current]{background:var(--text-primary);color:var(--surface)}
+.xlink{display:inline-block;margin-top:12px;font-size:13px;color:var(--text-primary)}
+.steps{display:flex;flex-wrap:wrap;gap:8px;padding:16px 28px}
+.steps button{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:6px 14px 6px 6px}
+.steps button i{font-style:normal;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--node-2);font-size:12px;font-weight:650}
+.steps button[aria-current="true"]{background:var(--text-primary);color:var(--surface);border-color:var(--text-primary)}
+.steps button[aria-current="true"] i{background:var(--surface);color:var(--text-primary)}
+main{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:20px;padding:0 28px 20px;align-items:start}
+.stage,.panel,.card{background:var(--surface);border:1px solid var(--border);border-radius:12px}
+.stage{padding:14px 16px 16px}
+.controls{display:flex;flex-wrap:wrap;gap:10px 22px}
+.controls:empty{display:none}
+.ctl{display:flex;flex-direction:column;gap:4px}
+.ctl-l,.kick,.row-l{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--node)}
+.seg button{border:0;background:none;padding:5px 11px;font-size:13px;border-right:1px solid var(--border)}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:var(--node-2)}
+.seg button[aria-pressed="true"]{background:var(--text-primary);color:var(--surface)}
+.caption{margin:10px 0 6px;color:var(--text-secondary);font-size:13.5px;min-height:20px}
+.canvas{position:relative}
+svg#svg{display:block;width:100%;height:auto;user-select:none}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:10px}
+.row-l{margin-right:4px;min-width:66px}
+.chip{display:inline-flex;align-items:center;gap:7px;background:var(--node);border:1px solid var(--border);border-radius:999px;padding:3px 11px 3px 9px;font-size:12.5px}
+.chip:hover{border-color:var(--text-secondary)}
+.chip[aria-pressed="true"]{border-color:var(--text-primary);box-shadow:inset 0 0 0 1px var(--text-primary)}
+.chip svg{width:30px;height:10px;flex:none}
+.tip{position:absolute;pointer-events:none;background:var(--text-primary);color:var(--surface);font-size:12px;padding:5px 9px;border-radius:6px;max-width:280px;opacity:0;transition:opacity .1s;z-index:5}
+.tip b{font-weight:650}
+.panel{position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto;padding:18px 20px 20px}
+.panel h2{margin:2px 0 8px;font-size:18px;line-height:1.25;letter-spacing:-.01em}
+.panel h3{margin:16px 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.panel p{margin:0 0 9px;font-size:13.5px}
+.panel ul,.panel ol{margin:0 0 8px;padding-left:19px;font-size:13.5px}
+.panel li{margin-bottom:5px}
+.panel dl{margin:0;font-size:13px}
+.panel dt{font-weight:650;margin-top:7px}
+.panel dd{margin:0;color:var(--text-secondary)}
+.panel .verdict{border-left:3px solid var(--text-primary);padding:6px 10px;background:var(--node-2);border-radius:0 6px 6px 0;font-size:13px}
+.back{background:none;border:0;padding:0;margin-bottom:10px;color:var(--text-secondary);font-size:12.5px}
+.back:hover{color:var(--text-primary)}
+.go{margin-top:12px;background:var(--text-primary);color:var(--surface);border:0;border-radius:8px;padding:7px 13px;font-size:13px}
+.foot{padding:0 28px 26px;color:var(--muted);font-size:12px}
+/* compare */
+#compare{grid-column:1/-1;display:grid;gap:18px}
+.card{padding:18px 20px}
+.card h2{margin:0 0 2px;font-size:17px}
+.card .lede{margin:0 0 12px;color:var(--text-secondary);font-size:13.5px;max-width:95ch}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:860px}
+th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--node-stroke);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--hair);vertical-align:top}
+td:first-child{font-weight:650;white-space:nowrap}
+.bars{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:7px 14px;align-items:center;max-width:980px}
+.bars .bl{font-size:13px}
+.bars .bl small{color:var(--muted)}
+.bars .bt{display:flex;align-items:center;gap:8px}
+.bars .bar{height:14px;border-radius:0 4px 4px 0;min-width:3px}
+.bars .bv{font-size:12.5px;color:var(--text-secondary);white-space:nowrap;font-variant-numeric:tabular-nums}
+.key{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 12px;font-size:12.5px;color:var(--text-secondary)}
+.key span{display:inline-flex;align-items:center;gap:6px}
+.key i{width:11px;height:11px;border-radius:3px;display:inline-block}
+/* svg */
+.zone{fill:var(--zone);stroke:var(--hair)}
+.zl{font-size:10.5px;letter-spacing:.07em;font-weight:650;fill:var(--muted);paint-order:stroke;stroke:var(--zone);stroke-width:6px;stroke-linejoin:round}
+.note{font-size:11.5px;fill:var(--text-secondary)}
+.node{cursor:pointer;outline:none;transition:opacity .15s}
+.node .box{fill:var(--node);stroke:var(--node-stroke);stroke-width:1.25}
+.node.sw .box{fill:var(--node-2)}
+.node.cont .box{fill:var(--surface);stroke-width:1.5}
+.node.ext .box{fill:var(--zone);stroke-dasharray:5 4}
+.node.gpu .box{fill:var(--node-2);stroke-width:1.75;stroke:var(--text-secondary)}
+.node .lb{font-size:13px;font-weight:650;fill:var(--text-primary);text-anchor:middle;pointer-events:none}
+.node .sb{font-size:10.8px;fill:var(--text-secondary);text-anchor:middle;pointer-events:none}
+.node.sm .lb{font-size:11.5px;font-weight:600}
+.tone-scaleup .box{stroke:var(--c-scaleup);fill:color-mix(in srgb,var(--c-scaleup) 11%,var(--node))}
+.tone-scaleout .box{stroke:var(--c-scaleout);fill:color-mix(in srgb,var(--c-scaleout) 10%,var(--node))}
+.tone-frontend .box{stroke:var(--c-frontend);fill:color-mix(in srgb,var(--c-frontend) 10%,var(--node))}
+.tone-storage .box{stroke:var(--c-storage);fill:color-mix(in srgb,var(--c-storage) 11%,var(--node))}
+.tone-mem .box{stroke:var(--c-mem);fill:color-mix(in srgb,var(--c-mem) 16%,var(--node))}
+.tone-pcie .box{stroke:var(--c-pcie);fill:color-mix(in srgb,var(--c-pcie) 9%,var(--node))}
+.tone-mgmt .box{stroke:var(--c-mgmt);stroke-dasharray:2 3}
+.node:hover .box,.node:focus-visible .box{stroke:var(--text-primary);stroke-width:2}
+.node.sel .box{stroke:var(--text-primary);stroke-width:2.75}
+.link{transition:opacity .15s;cursor:pointer}
+.link .vis{fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.link .hit{fill:none;stroke:transparent;stroke-width:11;pointer-events:stroke}
+.lt-pcie .vis{stroke:var(--c-pcie);stroke-width:2}
+.lt-scaleup .vis{stroke:var(--c-scaleup);stroke-width:3}
+.lt-scaleout .vis{stroke:var(--c-scaleout);stroke-width:2.25;stroke-dasharray:9 5}
+.lt-frontend .vis{stroke:var(--c-frontend);stroke-width:2;stroke-dasharray:11 4 2 4}
+.lt-storage .vis{stroke:var(--c-storage);stroke-width:2.75;stroke-dasharray:.1 6}
+.lt-mem .vis{stroke:var(--c-mem);stroke-width:5;stroke-linecap:butt}
+.lt-mgmt .vis{stroke:var(--c-mgmt);stroke-width:1.4;stroke-dasharray:1.5 4}
+.link.hv .vis,.link.on .vis{opacity:1}
+.link.hv .vis{stroke-width:4}
+svg.hovering .link:not(.hv){opacity:.22}
+svg.focus .link:not(.on){opacity:.1}
+svg.focus .node:not(.on){opacity:.32}
+svg.focus .link.on .vis{stroke-width:4.5}
+.pkt{fill:var(--text-primary);stroke:var(--surface);stroke-width:2}
+@media (max-width:1100px){main{grid-template-columns:1fr}.panel{position:static;max-height:none}}
+@media (prefers-reduced-motion:reduce){.pkt{display:none}*{transition:none!important}}
+.seg-w .box{fill:var(--c-mem);stroke:var(--c-mem)}
+.seg-k .box{fill:color-mix(in srgb,var(--c-mem) 52%,var(--node));stroke:var(--c-mem)}
+.seg-o .box{fill:var(--node-stroke);stroke:var(--node-stroke)}
+.note.l{text-anchor:start;font-size:11.5px;fill:var(--text-primary)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>AI Inference Infrastructure</h1>
+    <p>An interactive map of how a prompt becomes tokens: the serving path, the cluster, and the memory hierarchy. Click anything.</p>
+  </div>
+  <div class="top-r">
+    <div class="pages" aria-label="Tutorials"><a href="training-infra.html">Training</a><a href="inference-infra.html" aria-current="page">Inference</a></div>
+    <button class="theme" id="theme" aria-label="Toggle light or dark theme">Dark theme</button>
+  </div>
+</header>
+<nav class="steps" id="steps" aria-label="Tutorial steps"></nav>
+<main>
+  <section class="stage" id="stage">
+    <div class="controls" id="controls"></div>
+    <p class="caption" id="caption"></p>
+    <div class="canvas"><svg id="svg" role="group" aria-label="Topology diagram"></svg><div class="tip" id="tip"></div></div>
+    <div class="row" id="legend"></div>
+    <div class="row" id="concepts"></div>
+  </section>
+  <aside class="panel" id="panel" aria-live="polite"></aside>
+  <section id="compare" hidden></section>
+</main>
+<p class="foot">A simplified teaching model: box counts are reduced so the wiring stays readable. Product names and figures reflect public information as of mid-2026 and differ between deployments. Worked numbers use a 70B-parameter model as an illustration.</p>
+
+<script>
+window.addEventListener('error',e=>document.documentElement.setAttribute('data-err',e.message+' @'+e.lineno));
+const NS='http://www.w3.org/2000/svg';
+const $=(s,r=document)=>r.querySelector(s);
+const VIEWS=[['serve','Serving path'],['cluster','Cluster fabric'],['node','Inside an inference server'],['paths','Request lifecycle'],['compare','Compare the options']];
+const state={view:'serve',stack:'dynamo',mode:'agg',plat:'nvidia',prec:'fp16',flow:'',cflow:'',path:'req',sel:null,iso:null,panel:{kind:'intro'}};
+
+/* ───────────── serving stacks ───────────── */
+const STACK={
+ dynamo:{short:'NVIDIA Dynamo',gw:'Dynamo frontend',gsub:'OpenAI-compatible API',rt:'Smart Router',rsub:'KV-cache-aware · load-aware',pl:'Planner',psub:'scales to TTFT / ITL targets',wk:'Worker',kv:'KV Block Manager tiers',
+  tag:`NVIDIA Dynamo: an open-source layer above the inference engine that adds cache-aware routing, SLO-driven scaling and KV-cache tiering.`,
+  info:{k:'Serving stack',t:'NVIDIA Dynamo',
+   d:[`An open-source distributed inference framework announced at GTC 2025, positioned as the successor to Triton for LLM serving. It does not run the model itself: it sits above an engine (vLLM, SGLang or TensorRT-LLM) and supplies the cluster-level pieces.`],
+   specs:[['Smart Router','sends each request to the worker with the most KV-cache overlap, weighed against its load'],['Planner','adds and removes prefill and decode workers to hold time-to-first-token and inter-token-latency targets'],['KV Block Manager','moves KV-cache blocks between GPU memory, host RAM, local SSD and network storage'],['NIXL','transfer library that hides RDMA, NVMe-oF and object storage behind one API; used for KV hand-off']],
+   alt:[['llm-d','Kubernetes-native, vendor-neutral'],['Ray Serve','general Python serving on Ray'],['KServe','Kubernetes model serving, pre-dates LLMs'],['AIBrix','ByteDance open-source control plane for vLLM']],
+   dep:`Shipped with NVIDIA NIM and AI Enterprise and adopted by a number of GPU clouds and inference providers.`}},
+ llmd:{short:'llm-d (Kubernetes)',gw:'Inference Gateway',gsub:'Envoy · Gateway API',rt:'Endpoint Picker',rsub:'inference scheduler',pl:'Autoscaler',psub:'HPA / KEDA on SLO metrics',wk:'vLLM pod',kv:'Tiered KV cache (LMCache)',
+  tag:`llm-d: Kubernetes-native distributed inference built on vLLM and the Gateway API Inference Extension.`,
+  info:{k:'Serving stack',t:'llm-d',
+   d:[`Launched in May 2025 by Red Hat with Google Cloud, IBM Research, CoreWeave and NVIDIA. It makes LLM-aware scheduling a standard Kubernetes capability instead of a bespoke system.`,
+      `The <b>Gateway API Inference Extension</b> adds an Endpoint Picker to an Envoy-based gateway. For each request it chooses a pod using queue depth, KV-cache affinity and which LoRA adapters are loaded.`],
+   specs:[['Engine','vLLM pods'],['Routing','Endpoint Picker (inference scheduler) behind the gateway'],['Disaggregation','prefill and decode pods with a KV transfer sidecar'],['KV cache','tiered caching on local and shared storage']],
+   alt:[['NVIDIA Dynamo','similar ideas, NVIDIA-led'],['KServe','integrates with llm-d in recent releases'],['Ray Serve','not Kubernetes-specific']],
+   dep:`Red Hat OpenShift AI and Google Kubernetes Engine reference architectures; early production use from 2025.`}},
+ ray:{short:'Ray Serve + vLLM',gw:'Serve proxy',gsub:'HTTP / gRPC ingress',rt:'Request router',rsub:'power-of-two · prefix-aware',pl:'Serve autoscaler',psub:'on queued and running requests',wk:'Replica',kv:'Engine prefix cache',
+  tag:`Ray Serve + vLLM: a general Python serving layer on the Ray runtime, with LLM replicas wrapping vLLM engines.`,
+  info:{k:'Serving stack',t:'Ray Serve with vLLM',
+   d:[`Ray Serve is a model-serving library on the Ray distributed runtime. Its LLM APIs wrap a vLLM engine in each replica and expose an OpenAI-compatible endpoint.`,
+      `Its strength is composition: retrieval, several models and business logic can be chained in ordinary Python and scaled independently. Routing defaults to power-of-two-choices on load, with a prefix-aware option for cache affinity.`],
+   specs:[['Engine','vLLM inside each replica'],['Scaling','per-deployment autoscaling on request counts'],['Runs on','Kubernetes (KubeRay), VMs, or managed Anyscale']],
+   alt:[['Dynamo, llm-d','deeper LLM-specific scheduling and KV tiering'],['BentoML, Modal, Baseten','other Python-first serving platforms']],
+   dep:`Anyscale and many in-house ML platforms that already run Ray.`}},
+ kserve:{short:'KServe + Triton',gw:'Ingress gateway',gsub:'Istio / Envoy',rt:'InferenceService',rsub:'per-model endpoint',pl:'Knative / KEDA',psub:'including scale to zero',wk:'Runtime pod',kv:'Engine prefix cache',
+  tag:`KServe + Triton: the pre-LLM generation of Kubernetes model serving, extended for generative models.`,
+  info:{k:'Serving stack',t:'KServe with Triton or another runtime',
+   d:[`KServe gives Kubernetes an <b>InferenceService</b> resource: declare a model and a runtime and it creates the pods, the endpoint and the autoscaling. The runtime does the inference: NVIDIA Triton, Hugging Face TGI, vLLM and others.`,
+      `It was designed for many small and medium models with request-level load balancing. LLM-specific needs (token streaming, cache-aware routing, long-lived GPU state) arrived later through the Gateway API Inference Extension and llm-d integration.`],
+   specs:[['Scaling','Knative (serverless, scale to zero) or KEDA'],['Runtimes','Triton, TGI, vLLM, TorchServe, custom'],['Good at','fleets of heterogeneous models, classic ML alongside LLMs']],
+   alt:[['llm-d','the LLM-specific path within Kubernetes'],['Dynamo','successor to Triton for LLM serving']],
+   dep:`Widely used in enterprise Kubernetes platforms such as OpenShift AI and Kubeflow.`}}
+};
+const MODE={
+ agg:{short:'Aggregated',pa:'Replica pool A',pb:'Replica pool B',wa:'prefill + decode',wb:'prefill + decode',
+  info:{k:'Serving mode',t:'Aggregated serving',
+   d:[`Every worker handles a request from start to finish: it prefills the prompt, then decodes the answer, on the same GPUs. This is the default in most engines and the simplest to operate.`,
+      `The weakness is interference. A long prompt arriving for prefill occupies the GPU and delays the next token of every conversation already decoding on it. Chunked prefill softens this by slicing long prompts.`],
+   alt:[['Disaggregated serving','separate pools for the two phases']]}},
+ dis:{short:'Disaggregated',pa:'Prefill pool',pb:'Decode pool',wa:'prefill · compute-bound',wb:'decode · memory-bound',
+  info:{k:'Serving mode',t:'Disaggregated prefill and decode',
+   d:[`Prefill and decode run on <b>separate worker pools</b>. A prefill worker processes the prompt and builds the KV cache, ships that cache to a decode worker, and the decode worker streams the tokens.`,
+      `The two phases stop interfering, and each pool can be sized and tuned on its own: prefill for raw compute, decode for memory bandwidth and batch size. They can even use different hardware.`,
+      `The cost is the hand-off. A long prompt's KV cache is gigabytes, so it needs a fast east-west path: NVLink inside a rack, or RDMA between racks. This is the main reason inference clusters now get a backend fabric.`],
+   specs:[['Research lineage','DistServe, Splitwise'],['Implementations','NVIDIA Dynamo, llm-d, vLLM, SGLang, Mooncake'],['Hardware echo','prefill-specialised parts such as NVIDIA Rubin CPX (announced 2025) and decode-specialised parts such as Groq LPUs']]}}
+};
+
+/* ───────────── accelerator platforms ───────────── */
+const PLAT={
+ nvidia:{short:'NVIDIA GPU',tray:'GPU server',su:'NVLink switch',
+  tag:`NVIDIA GPUs: the default. Large HBM, NVLink for models that span GPUs, and the deepest software stack.`,
+  info:{k:'Accelerator platform',t:'NVIDIA GPU racks',
+   d:[`The same hardware that trains models serves most of them. For inference what matters is <b>HBM capacity</b> (weights plus KV cache), <b>HBM bandwidth</b> (decode speed) and NVLink for models split across GPUs.`,
+      `NVIDIA is also splitting the product line by phase: Rubin CPX was announced in 2025 as a GPU for long-context prefill using cheaper GDDR7 memory, and at the end of 2025 NVIDIA licensed Groq's low-latency decode technology.`],
+   specs:[['H200','141 GB HBM3e'],['B200 / B300','about 180 GB / 288 GB HBM3e, NVLink 5'],['Rubin (2026)','288 GB HBM4, NVLink 6'],['Rack','GB200 / GB300 NVL72: 72 GPUs behind one NVLink fabric'],['Software','TensorRT-LLM, NIM, Dynamo; every open engine targets CUDA first']],
+   alt:[['AMD Instinct','more memory per GPU'],['Cloud ASICs','lower cost per token at one operator'],['Groq, Cerebras','far higher single-stream speed']],
+   dep:`Every major cloud and nearly every inference provider.`}},
+ amd:{short:'AMD Instinct',tray:'Instinct GPU tray',su:'UALink / Ethernet switch',
+  tag:`AMD Instinct: competes on memory per GPU, which translates directly into larger models and more cached context.`,
+  info:{k:'Accelerator platform',t:'AMD Instinct and Helios',
+   d:[`AMD's pitch for inference is memory. Each Instinct generation has carried more HBM than its NVIDIA contemporary, so a model that needs two GPUs elsewhere may fit on one, or the same GPU holds more KV cache and therefore more concurrent users.`,
+      `Helios is AMD's rack-scale system, using open interconnects: UALink for scale-up and Ultra Ethernet for scale-out.`],
+   specs:[['MI300X','192 GB HBM3'],['MI325X / MI355X','256 GB / 288 GB HBM3e'],['MI450 (2026)','432 GB HBM4, Helios rack'],['Software','ROCm; supported by vLLM, SGLang, llama.cpp']],
+   dep:`Microsoft Azure, Meta and Oracle run MI300-class parts for inference. OpenAI and Oracle have announced large MI450 deployments from 2026.`}},
+ tpu:{short:'Google TPU',tray:'TPU tray',su:'ICI torus · no switch',
+  tag:`Google TPU: an in-house accelerator with a switchless torus interconnect, now explicitly aimed at inference.`,
+  info:{k:'Accelerator platform',t:'Google TPU',
+   d:[`Google described Ironwood, its seventh-generation TPU, as built for the age of inference. Chips connect directly to their neighbours in a torus (ICI), with no scale-up switches.`,
+      `Because Google owns the chip, the network, the compiler and the models, it can optimise cost per token across the whole stack.`],
+   specs:[['Ironwood','192 GB HBM per chip; pods of up to 9,216 chips'],['Interconnect','ICI torus, optical circuit switches between racks'],['Software','JAX, XLA; vLLM support on TPU']],
+   dep:`Gemini and Google's own services; Anthropic has announced access to up to a million TPUs through Google Cloud.`}},
+ asic:{short:'Cloud ASICs',tray:'ASIC server',su:'in-house link',
+  tag:`Cloud ASICs: each hyperscaler builds a chip for its own highest-volume workloads to cut cost per token.`,
+  info:{k:'Accelerator platform',t:'Hyperscaler custom ASICs',
+   d:[`When one operator serves the same few models at enormous volume, a chip designed for that workload can beat a general GPU on cost and power, even if it is slower or less flexible.`],
+   specs:[['AWS','Trainium 2 and 3 (also used for inference), Inferentia 2; NeuronLink interconnect'],['Microsoft','Maia 100 and Maia 200 (2026, inference-focused)'],['Meta','MTIA: recommendation and ranking inference first, generative next'],['OpenAI','custom accelerator with Broadcom, first racks planned for late 2026']],
+   alt:[['Merchant GPUs','needed anyway for customers who want CUDA'],['Design partners','Broadcom, Marvell, Alchip and MediaTek build most of these chips']],
+   dep:`Anthropic's Claude runs at scale on AWS Trainium. Meta serves most ranking inference on MTIA.`}},
+ groq:{short:'Groq LPU',tray:'LPU node',su:'chip-to-chip mesh',
+  tag:`Groq LPU: no HBM at all. Weights sit in on-chip SRAM and execution is scheduled at compile time, for very fast decode.`,
+  info:{k:'Accelerator platform',t:'Groq LPU',
+   d:[`The Language Processing Unit keeps the model in <b>SRAM on the chip</b> rather than in HBM beside it, and the compiler schedules every operation and data movement ahead of time, so there is no contention at run time.`,
+      `Each chip holds little memory, so a model is spread across hundreds of chips linked directly to each other. The result is very high tokens per second for a single stream. The limits are total memory, long contexts and cost per token at high batch.`],
+   specs:[['Memory','on-chip SRAM, a few hundred megabytes per first-generation chip'],['Scaling','hundreds of LPUs per model, direct chip-to-chip links'],['Sweet spot','latency-critical decode: voice, agents, interactive coding']],
+   alt:[['Cerebras','same goal, one wafer instead of many chips'],['SambaNova','SRAM + HBM + DDR in three tiers']],
+   dep:`GroqCloud and sovereign deployments. NVIDIA licensed the technology and hired much of the team at the end of 2025.`}},
+ cerebras:{short:'Cerebras wafer-scale',tray:'CS-3 · one wafer each',su:'links between systems',
+  tag:`Cerebras: one chip the size of a wafer. Compute and SRAM memory sit together, so memory bandwidth is enormous.`,
+  info:{k:'Accelerator platform',t:'Cerebras wafer-scale engine',
+   d:[`Instead of dicing a wafer into chips and wiring them back together, Cerebras uses the whole wafer as one processor. Cores and memory are interleaved across it, connected by an on-wafer mesh.`,
+      `Decode is limited by how fast weights can be read. With memory millimetres from the compute, Cerebras reports thousands of tokens per second on mid-sized models. The constraint is capacity: larger models and long contexts must span several wafers.`],
+   specs:[['WSE-3','46,225 mm², about 900,000 cores, 44 GB of on-wafer SRAM'],['System','CS-3, liquid cooled, roughly 23 kW'],['Sweet spot','fastest single-stream output; reasoning models that emit many tokens']],
+   alt:[['Groq','many small SRAM chips'],['GPUs','far more memory per dollar, far more throughput at large batch']],
+   dep:`Cerebras Inference cloud; OpenAI signed a multi-year capacity agreement in January 2026; also used by Meta, Mistral and Perplexity.`}}
+};
+
+/* ───────────── component info ───────────── */
+const TRAIN=(hash,label)=>['training-infra.html#'+hash,label];
+const INFO={
+ users:{k:'Clients',t:'Users and applications',
+  d:[`Chat apps, coding assistants, agents and batch jobs. They send a prompt over HTTPS and receive tokens as a stream (server-sent events or gRPC), so the user sees the answer as it is generated.`,
+     `Agents change the load shape: one user task may trigger dozens of model calls, each re-sending a long and mostly unchanged context. That makes KV-cache reuse central.`]},
+ edge:{k:'Edge',t:'Global load balancer',
+  d:[`The public entry point. An anycast address lands the user at the nearest point of presence, where TLS is terminated and the request is steered to a region.`,
+     `Unlike web traffic, the choice of region is driven by <b>where GPU capacity is free</b>, not only by distance: a few tens of milliseconds of extra network latency is small next to a queue for a GPU.`],
+  specs:[['Functions','anycast, TLS termination, DDoS protection, region selection'],['Signal','per-region capacity and queue depth published by the control plane']]},
+ regions:{k:'Edge',t:'Other regions',
+  d:[`Identical serving stacks elsewhere. They absorb overflow when the home region is saturated, take over on failure, and let data stay in a jurisdiction when required.`]},
+ gateway:s=>({k:'Control',t:STACK[s.stack].gw+' (API gateway)',
+  d:[`The front door of a region. It authenticates the caller, enforces rate limits and quotas counted in <b>tokens</b> rather than requests, picks the model, and records usage for billing.`,
+     `It also holds the streaming connection open to the client for the life of the response, and separates traffic into classes: interactive, batch, and reserved capacity.`,
+     `Showing <b>${STACK[s.stack].short}</b>: ${STACK[s.stack].gsub}.`],
+  specs:[['Protocols','HTTP/2 with server-sent events, gRPC streaming, OpenAI-compatible APIs'],['Limits','tokens per minute, requests per minute, concurrent streams'],['Classes','priority, standard, batch, provisioned throughput']]}),
+ safety:{k:'Control',t:'Safety and policy filters',
+  d:[`Small, fast classifier models that inspect the prompt on the way in and the output on the way out. They run on their own modest GPU or CPU pool so they never queue behind the large model.`,
+     `Output filtering has to work on a stream, so it runs incrementally on token chunks and can cut a response mid-flight.`]},
+ tools:{k:'Control',t:'Retrieval and tools',
+  d:[`Systems the application layer calls before or between model calls: a vector database for retrieval-augmented generation, web search, code execution sandboxes, and other APIs.`,
+     `Retrieved text is appended to the prompt, so it lengthens prefill. Tool-using agents produce many short model calls separated by tool latency; during the wait the conversation's KV cache sits idle and is a candidate for offload.`],
+  specs:[['Retrieval','embedding model + vector index (FAISS, Milvus, pgvector, managed services)'],['Tool protocols','function calling, Model Context Protocol']]},
+ obs:{k:'Control',t:'Metering and telemetry',
+  d:[`Counts input and output tokens for billing and collects the signals that run the service: time to first token, inter-token latency, queue depth, GPU memory use, cache hit rate.`,
+     `These metrics feed the autoscaler and the router; they are part of the control loop, not just dashboards.`]},
+ router:s=>({k:'Control',t:STACK[s.stack].rt+' (request router)',
+  d:[`Chooses which worker gets each request. This is where LLM serving departs from ordinary load balancing: workers are <b>not interchangeable</b>, because each holds different KV caches in its GPU memory.`,
+     `A good router scores every worker on how much of the incoming prompt's prefix it already has cached, how long its queue is, and whether the right LoRA adapter is loaded, then sends the request where it will finish soonest.`,
+     `Showing <b>${STACK[s.stack].short}</b>: ${STACK[s.stack].rsub}.`],
+  specs:[['Inputs','prefix hash, per-worker queue and memory, SLO class'],['Classic baselines','round robin, least requests, power of two choices'],['LLM-aware','prefix or KV-cache affinity, adapter affinity, prefill/decode pool selection']]}),
+ planner:s=>({k:'Control',t:STACK[s.stack].pl+' (autoscaler)',
+  d:[`Decides how many workers of each kind should exist. It watches latency against targets and queue growth, and adds or removes replicas, or rebalances between prefill and decode pools.`,
+     `Scaling GPUs is slow and coarse: a new replica must load tens of gigabytes of weights before it serves anything. So the planner forecasts, keeps warm spares, and fills idle capacity with batch work.`,
+     `Showing <b>${STACK[s.stack].short}</b>: ${STACK[s.stack].psub}.`],
+  specs:[['Signals','time to first token, inter-token latency, queue depth, tokens per second per GPU'],['Actions','add or remove replicas, shift GPUs between pools or models, shed or defer batch work']]}),
+ pool:s=>({k:'Workers',t:s.mode==='dis'?'Prefill and decode pools':'Replica pools',
+  d:[s.mode==='dis'?`Workers are split by phase. The prefill pool turns prompts into KV caches; the decode pool turns KV caches into tokens. The orange link carries the KV cache between them.`:`Groups of identical workers serving the same model. Each worker runs both phases of every request it receives.`,
+     `Pools are usually per model and per hardware type, and a region runs many of them side by side.`],
+  specs:MODE[s.mode].info.specs}),
+ worker:s=>({k:'Workers',t:STACK[s.stack].wk+' (inference engine on a GPU server)',
+  d:[`One engine process driving one or more GPUs. It holds the model weights in GPU memory, runs a continuous batch of requests, and manages the KV cache.`,
+     `The engine is where most per-GPU efficiency comes from: batching, memory paging, quantised kernels, speculative decoding.`],
+  specs:[['Open engines','vLLM, SGLang, TensorRT-LLM, Hugging Face TGI, llama.cpp'],['Typical size','1–8 GPUs per worker; larger models span a rack']],
+  go:['node','Open step 3 · inside an inference server']}),
+ weights:{k:'State',t:'Model registry and weights',
+  d:[`The authoritative copy of each model: weight files, tokeniser, configuration, LoRA adapters. Weights are large (a 70B model is 140 GB at 16 bits) and immutable, so they live in object storage and are cached on each server's local SSD.`,
+     `How fast weights get from here into GPU memory sets the <b>cold-start time</b>, which in turn sets how aggressively the fleet can scale down.`],
+  specs:[['Formats','safetensors, GGUF, compiled TensorRT engines'],['Fast loading','local NVMe cache, GPUDirect Storage, streaming loaders'],['Stores','S3-compatible object storage, parallel file systems']]},
+ kvstore:s=>({k:'State',t:'KV cache and context memory tier',
+  d:[`Shared storage for KV caches that have been pushed out of GPU memory. A conversation that pauses, or a long system prompt used by thousands of requests, can be parked here and restored later on <b>any</b> worker instead of being recomputed.`,
+     `It must be fast enough that restoring beats recomputing, which means flash reached over RDMA. In 2026 this became its own product category.`,
+     s.view==='serve'?`Showing <b>${STACK[s.stack].short}</b>: ${STACK[s.stack].kv}.`:`In the cluster it attaches to the east-west fabric so every rack can reach it.`],
+  specs:[['Software','Dynamo KV Block Manager, LMCache, Mooncake store'],['Storage platforms','NVIDIA context memory storage on BlueField-4, WEKA, VAST Data, DDN and others'],['Transport','RDMA, NVMe over Fabrics']]}),
+ /* cluster */
+ inet:{k:'Frontend',t:'Internet and backbone',
+  d:[`Requests enter from the public internet or the operator's private backbone. The payload is text: kilobytes in, kilobytes out. Bandwidth is not the issue; connection count, TLS and latency are.`]},
+ fes:{k:'Frontend',t:'Frontend spine and load balancers',
+  d:[`Border routers and layer-4 and layer-7 load balancers. They spread connections across racks and keep long-lived streaming connections pinned to the server generating the tokens.`,
+     `In inference, <b>this</b> is the critical network: an outage here takes the service down, where a training cluster would only lose its data feed.`],
+  specs:[['Speeds','100–400G per server'],['Functions','ECMP, connection tracking, TLS offload in DPUs']]},
+ fel:{k:'Frontend',t:'Frontend leaf (top of rack)',
+  d:[`Connects each server's DPU to the frontend network. Tenant isolation, encryption and virtual networking are enforced in the DPU.`],
+  href:TRAIN('v=node&s=dpu','DPUs in the training map')},
+ rackpod:s=>Object.assign({},PLAT[s.plat].info,{k:'Inference rack · '+PLAT[s.plat].short}),
+ server:s=>({k:'Compute',t:PLAT[s.plat].tray,
+  d:[`One chassis of accelerators with host CPUs, memory, local flash and network cards. Step 3 opens a GPU-based one.`,`Showing <b>${PLAT[s.plat].short}</b>.`],
+  go:['node','Open step 3 · inside an inference server']}),
+ su:s=>({k:'Scale-up',t:PLAT[s.plat].su,
+  d:[`The link between accelerators inside the rack. In inference it carries activations for models that are split across accelerators (tensor or expert parallelism) and can carry KV caches between prefill and decode workers in the same rack.`,
+     `Showing <b>${PLAT[s.plat].short}</b>.`],
+  href:TRAIN('v=rack','Scale-up technologies in the training map')}),
+ be:{k:'East-west',t:'East-west and storage leaf',
+  d:[`An RDMA-capable Ethernet or InfiniBand fabric between racks. Training clusters build this with one NIC per GPU. Inference needs less, often one or two ports per server, and uses it for three things: KV-cache hand-off in disaggregated serving, models that span racks, and reaching weights and context storage.`,
+     `As contexts grow and disaggregation spreads, this fabric is getting larger with each generation.`],
+  specs:[['Technologies','RoCEv2, InfiniBand, Ultra Ethernet'],['Typical','1–2 × 200–400G per server; more for disaggregated designs']],
+  href:TRAIN('v=cluster','Scale-out fabrics in the training map')},
+ ctrl:{k:'Control',t:'Control plane',
+  d:[`Kubernetes or an in-house scheduler places engine processes on servers; the gateway, router and autoscaler from step 1 run here. It also drains and replaces failed servers, which is routine at this scale.`],
+  go:['serve','Back to the serving path']},
+ /* node */
+ cpu:{k:'Host',t:'Host CPU',
+  d:[`Busier in inference than in training. It terminates HTTP streams, <b>tokenises</b> prompts and detokenises output, runs the batch scheduler that decides which requests enter each step, applies sampling constraints for structured output, and manages KV-cache paging.`,
+     `A slow host CPU shows up directly as higher time to first token and lower GPU utilisation.`],
+  specs:[['Per request','tokenise, schedule, constrain, detokenise, stream'],['Sizing','fast cores matter more than many cores']]},
+ ddr:{k:'Memory · tier 2',t:'Host DRAM',
+  d:[`The second tier for KV cache. Blocks evicted from GPU memory are copied over PCIe into host RAM and can return in well under a second. Capacity is several times the GPU's, at a fraction of the cost per gigabyte.`,
+     `Memory must be pinned so the GPU can DMA into it. CXL can extend this tier beyond the DIMM slots.`],
+  specs:[['Capacity','1–2 TB per server is common'],['Path to GPU','PCIe, about 63 GB/s per Gen5 x16 link']]},
+ dpu:{k:'Frontend',t:'DPU (frontend NIC)',
+  d:[`Terminates the frontend network in the server. It offloads TLS, enforces tenant isolation, and in newer designs also fronts the context-memory storage tier.`],
+  href:TRAIN('v=node&s=dpu','DPU alternatives in the training map')},
+ psw:{k:'Host bus',t:'PCIe switch',
+  d:[`Fans the CPU's PCIe lanes out to GPUs, NICs and SSDs. Devices under the same switch can exchange data directly, which is what lets an SSD or NIC write straight into GPU memory.`,
+     `In inference the PCIe traffic is lopsided: token IDs are tiny, but weight loading and KV-cache paging move tens of gigabytes in bursts.`],
+  href:TRAIN('v=paths&p=sto-gds','GPUDirect paths in the training map')},
+ nic:{k:'East-west',t:'RDMA NIC',
+  d:[`The server's port on the east-west fabric. With GPUDirect RDMA it reads KV-cache blocks straight out of GPU memory to send to another worker or to network storage, and writes incoming blocks straight in.`],
+  specs:[['Typical','ConnectX-7 or -8, 200–800G'],['Used by','KV transfer libraries such as NIXL, NVMe over Fabrics clients']]},
+ nvme:{k:'Memory · tier 3',t:'Local NVMe flash',
+  d:[`Two jobs. It caches <b>model weights</b> so a restart or a new replica loads from local disk in seconds rather than pulling from object storage. And it is the third <b>KV-cache tier</b>: slower than DRAM but an order of magnitude larger.`],
+  specs:[['Throughput','roughly 7–14 GB/s per Gen4 or Gen5 drive; drives are striped'],['Direct path','GPUDirect Storage moves data between SSD and GPU memory without the CPU']]},
+ gpu:{k:'Compute',t:'GPU',
+  d:[`Runs the model. In prefill it processes all prompt tokens in parallel and its compute is the limit. In decode it produces one token per step for every request in the batch, re-reading the weights each step, and its <b>memory bandwidth</b> is the limit.`,
+     `The memory map on the left of each GPU shows how its HBM is divided. Change the weight precision above the diagram to see the trade.`],
+  go:['cluster','Compare accelerator platforms in step 2']},
+ hbm:{k:'Memory · tier 1',t:'GPU memory (HBM)',
+  d:[`The only memory the GPU can compute on directly. It is divided between the model weights (fixed), the KV cache (grows with every token of every live request) and working memory.`,
+     `When HBM is full the engine must stop admitting requests, evict KV cache to a lower tier, or drop it and recompute later.`],
+  specs:[['Capacity','80 GB (H100) to 288 GB (B300, Rubin); 432 GB on AMD MI450'],['Bandwidth','several terabytes per second']]},
+ segw:s=>({k:'GPU memory',t:'Model weights',
+  d:[`The parameters of the model, loaded once and read on every step. With tensor parallelism each GPU holds its share.`,
+     `Decode speed is roughly memory bandwidth divided by the bytes of weights read per step, so smaller weights are both cheaper and faster. That is the case for quantisation.`,
+     `Showing <b>${PREC[s.prec].label}</b>: ${fmt(PREC[s.prec].w)} GB per GPU for a 70B-parameter model over four GPUs.`]}),
+ segk:s=>({k:'GPU memory',t:'KV cache',
+  d:[`Keys and values saved for every token of every live request, so that each new token attends to the past without recomputing it. It is the state of the conversation in GPU form.`,
+     `For this model each token costs about 0.31 MB across the four GPUs. A single 100,000-token context is therefore about 31 GB. KV cache, not weights, is what fills GPU memory in production.`,
+     `Showing ${fmt(kvGB(s))} GB per GPU: room for about ${kvTok(s)}k tokens of live context.`]}),
+ sego:{k:'GPU memory',t:'Runtime and activations',
+  d:[`Working memory for the layers currently executing, the engine's own buffers, and CUDA overhead. Small next to weights and KV cache, but it has to be reserved.`]},
+ nvl:{k:'Scale-up',t:'NVLink between GPUs',
+  d:[`When a model is split across GPUs with tensor parallelism, every layer ends with the GPUs exchanging partial results. That happens twice per layer, for every token, so the link must be fast and low-latency.`,
+     `Small servers wire GPUs to each other directly; 8-GPU boards and racks put NVLink switches in between.`],
+  href:TRAIN('v=rack','NVLink and its competitors in the training map')}
+};
+INFO.poola=INFO.poolb=INFO.pool; INFO.pa=INFO.pb=INFO.worker; INFO.ctx=INFO.kvstore;
+INFO.frontend=INFO.fel; INFO.backend=INFO.be; INFO.fes1=INFO.fes;
+
+/* ───────────── weight precision ───────────── */
+const PREC={fp16:{label:'FP16 (16-bit)',w:35},fp8:{label:'FP8 / INT8 (8-bit)',w:17.5},int4:{label:'4-bit',w:8.75}};
+const fmt=v=>(+v.toFixed(1)).toString();
+const kvGB=s=>80-5-PREC[s.prec].w;
+const kvTok=s=>Math.round(kvGB(s)*2**30/81920/1000);
+
+/* ───────────── link info ───────────── */
+const LINKINFO={
+ frontend:{k:'Link type',t:'Request path (frontend Ethernet)',
+  d:[`Ordinary IP networking carrying HTTPS or gRPC. A request is a few kilobytes of text in and a stream of tokens out, so bandwidth per request is tiny. The frontend is sized for connection count, TLS, and bulk transfers such as weight downloads.`,
+     `It is the network users feel: every millisecond here is added to time to first token.`]},
+ scaleout:{k:'Link type',t:'East-west RDMA',
+  d:[`GPU-to-GPU and GPU-to-storage traffic between servers: KV-cache hand-off from prefill to decode workers, KV restore from shared storage, and activations for models that span servers.`,
+     `It uses the same technologies as a training backend (RoCEv2, InfiniBand, Ultra Ethernet) at lower port counts.`],
+  href:TRAIN('v=cluster','Scale-out fabrics in the training map')},
+ scaleup:s=>s.view==='cluster'?{k:'Link type · scale-up',t:PLAT[s.plat].su,d:INFO.su(s).d,href:INFO.su(s).href}:Object.assign({},INFO.nvl,{k:'Link type · scale-up'}),
+ pcie:{k:'Link type',t:'PCIe',
+  d:[`The host bus: a tree from the CPU through switches to GPUs, NICs and SSDs. It carries token IDs (tiny), weights at load time (large, once) and KV-cache paging to DRAM and flash (large, bursty).`],
+  specs:[['Gen5 x16','about 63 GB/s each way'],['Gen6 x16','about 121 GB/s each way']]},
+ storage:{k:'Link type',t:'Weights and KV storage I/O',
+  d:[`Two very different flows share this path. Weight loading is a large sequential read that happens when a replica starts. KV-cache offload and restore is frequent, latency-sensitive and random.`],
+  specs:[['Protocols','object (S3), NVMe over Fabrics, NFS over RDMA']]},
+ mem:{k:'Link type',t:'Memory bus',
+  d:[`DDR5 channels between the CPU and its DIMMs, and the in-package wiring between a GPU and its HBM. HBM bandwidth is the quantity that limits decode speed.`]},
+ mgmt:{k:'Link type',t:'Control and metrics',
+  d:[`Low-volume signalling: load and cache-state reports from workers to the router, latency metrics to the autoscaler, and scaling commands back.`]}
+};
+
+/* ───────────── concepts ───────────── */
+const CONCEPTS={
+ phases:{k:'Concept',t:'Prefill and decode',
+  d:[`Every request has two phases with opposite appetites.`,
+     `<b>Prefill</b> reads the whole prompt in one parallel pass and builds the KV cache. It is compute-bound and determines <b>time to first token</b>.`,
+     `<b>Decode</b> generates one token at a time. Each step re-reads all the weights and the KV cache, so it is bound by memory bandwidth, and determines <b>tokens per second</b>.`,
+     `Batching decode steps for many users shares that weight read, so throughput rises almost linearly with batch size until compute or KV memory runs out. Nearly every design decision in inference follows from this asymmetry.`]},
+ batch:{k:'Concept',t:'Continuous batching and paged KV memory',
+  d:[`With <b>continuous batching</b>, requests join and leave the running batch at every decode step instead of waiting for a fixed batch to form. Short answers finish and free their slot immediately.`,
+     `<b>PagedAttention</b>, introduced by vLLM, stores KV cache in fixed-size blocks like operating-system pages. Sequences of any length share memory without fragmentation, and requests with a common prefix can share blocks.`,
+     `<b>Chunked prefill</b> slices a long prompt across several steps so it does not stall the decodes sharing its GPU.`]},
+ kv:{k:'Concept',t:'The KV cache',
+  d:[`For every token it has processed, the model keeps a key and a value vector at every attention layer, so later tokens can attend to it without recomputation.`,
+     `Size per token = 2 × layers × KV heads × head dimension × bytes per value. For a 70B-class model (80 layers, 8 KV heads of 128 dimensions, 16-bit values) that is about <b>0.31 MB per token</b>, so a 100,000-token context is about 31 GB.`,
+     `Long contexts and agents make inference a memory problem. Whoever holds a request's KV cache can continue it cheaply; anyone else must pay for prefill again.`]},
+ tiers:{k:'Concept',t:'KV-cache tiering',
+  d:[`GPU memory is too scarce to hold every idle conversation, and recomputing a long context is expensive. So KV cache is paged down a hierarchy and brought back on demand. NVIDIA labels these tiers G1 to G4.`],
+  specs:[['Tier 1 · GPU HBM','active requests; the only tier the GPU computes on'],['Tier 2 · host DRAM','recently idle; back in a fraction of a second over PCIe'],['Tier 3 · local NVMe','larger and slower; lost if the server fails'],['Tier 4 · network storage','shared by all workers and survives failures; reached over RDMA']],
+  alt:[['Recompute','always possible: drop the cache and run prefill again'],['KV compression and quantisation','shrinks what must be stored and moved']],
+  go:['paths','Watch the tiers in step 4']},
+ disagg:MODE.dis.info,
+ route:{k:'Concept',t:'Cache-aware routing',
+  d:[`A stateless load balancer wastes KV caches. If the second turn of a conversation lands on a different worker, the entire history is prefilled again.`,
+     `Cache-aware routers hash the prompt's prefix and prefer the worker that already holds it, balanced against that worker's queue. The same idea extends to LoRA adapters and to shared system prompts.`,
+     `Prompt-caching discounts from API providers are the commercial face of this: cached input tokens are cheaper because they skip prefill.`]},
+ slo:{k:'Concept',t:'Metrics and SLOs',
+  d:[`Inference is run to latency targets, not to completion time.`],
+  specs:[['TTFT','time to first token: queueing + prefill'],['TPOT / ITL','time per output token, or inter-token latency: decode speed as the user sees it'],['Throughput','tokens per second per GPU, across all users'],['Goodput','requests per second that meet their latency targets; the number that matters'],['Cost','dollars per million tokens; tokens per joule']]},
+ quant:{k:'Concept',t:'Quantisation',
+  d:[`Storing weights in fewer bits: 16-bit floating point down to 8-bit or 4-bit. Halving the bits halves the memory for weights <b>and</b> the bytes read per decode step, so capacity and speed both improve.`,
+     `The cost is accuracy, which has to be measured per model and task. The KV cache can be quantised separately.`],
+  specs:[['Common schemes','FP8 and INT8, AWQ and GPTQ (4-bit), GGUF k-quants, NVFP4 on Blackwell'],['Hardware','needs native low-precision kernels to gain speed, not just save memory']]},
+ par:{k:'Concept',t:'Splitting a model across GPUs',
+  d:[`<b>Tensor parallelism</b> splits every layer across GPUs, which exchange results twice per layer. It needs scale-up links such as NVLink.`,
+     `<b>Pipeline parallelism</b> places consecutive layers on different GPUs or servers. It is lighter on the network but adds a hop of latency per stage.`,
+     `<b>Expert parallelism</b>, for mixture-of-experts models, places experts on different GPUs and routes each token to a few of them: all-to-all traffic that favours rack-scale scale-up fabrics.`]},
+ scale:{k:'Concept',t:'Autoscaling, cold start and capacity tiers',
+  d:[`Demand swings through the day and GPUs are too expensive to leave idle, so fleets scale. The obstacle is <b>cold start</b>: weights must travel from object storage to local flash to GPU memory before a replica can serve, which takes minutes if done naively.`,
+     `Mitigations: weights pre-cached on local NVMe, direct-to-GPU and streaming loaders, warm spare replicas, and shifting GPUs between models instead of starting from nothing.`,
+     `Operators also sell capacity in tiers. Interactive traffic gets priority, batch work fills the troughs at a discount, and reserved throughput guarantees a floor.`]},
+ tvi:{k:'Concept',t:'How inference differs from training',
+  d:[`Training is one giant job that wants every GPU synchronised; its critical network is the east-west backend. Inference is millions of small independent jobs with deadlines; its critical network is the frontend and its critical resource is memory.`,
+     `Training tolerates a restart from checkpoint. Inference must stay up, degrade gracefully, and follow a demand curve it does not control.`],
+  go:['compare','See the side-by-side table']},
+ gpudirect:{k:'Concept',t:'GPUDirect in inference',
+  d:[`The same mechanisms as in training, used for different data. <b>GPUDirect Storage</b> loads weights from flash and pages KV cache to and from it. <b>GPUDirect RDMA</b> moves KV cache between workers and to network storage. In both cases data bypasses the host CPU and system RAM.`],
+  href:TRAIN('v=paths','GPUDirect paths in the training map')}
+};
+
+/* ───────────── flows and paths ───────────── */
+const FLOWS={
+ req:s=>s.mode==='dis'?{label:'Chat request',seq:['users','edge','gateway','safety','gateway','router','pa2','pb0'],k:'Traced flow · disaggregated',t:'A request through separate prefill and decode',
+   steps:[`The edge terminates TLS and picks a region.`,`The gateway authenticates, checks token quotas and screens the prompt.`,`The router picks a prefill worker and a decode worker.`,`The prefill worker processes the prompt and builds its KV cache.`,`The KV cache is sent over RDMA to the decode worker.`,`The decode worker generates tokens and streams them back the way the request came.`],
+   verdict:`Prefill never stalls a running decode, and each pool scales on its own. The price is moving gigabytes of KV cache between workers.`}
+  :{label:'Chat request',seq:['users','edge','gateway','safety','gateway','router','pa1'],k:'Traced flow · aggregated',t:'A request, end to end',
+   steps:[`The edge terminates TLS and picks a region.`,`The gateway authenticates, checks token quotas and screens the prompt.`,`The router picks a worker.`,`That worker prefills the prompt, then decodes, streaming tokens back along the same path.`],
+   verdict:`One worker does everything. Simple, but a long prompt delays every other response on that GPU.`},
+ sticky:{label:'Follow-up turn',seq:['users','edge','gateway','router','pb1'],k:'Traced flow',t:'Cache-aware routing of a follow-up',
+  d:[`The user sends a second message. The prompt is the whole conversation so far plus one new line. The router recognises the prefix and sends the request to <b>the worker that already holds its KV cache</b>.`,
+     `That worker prefills only the new tokens. Time to first token drops from seconds to tens of milliseconds, and the provider can bill the reused tokens at a cached rate.`]},
+ rag:{label:'Retrieval / tool call',seq:['users','edge','gateway','tools','gateway','router','pa0'],k:'Traced flow',t:'Retrieval-augmented request',
+  d:[`Before the model is called, the application layer queries a vector index or a tool and adds the results to the prompt.`,
+     `Retrieval adds its own latency and makes the prompt longer, shifting cost toward prefill. Agents repeat this loop many times per task.`]},
+ cold:{label:'Scale up (cold start)',seq:['obs','planner','poolb','weights','poolb'],k:'Traced flow',t:'Adding a replica',
+  d:[`Telemetry shows latency drifting above target. The autoscaler asks for another worker. A server is allocated, the engine starts, and it pulls the model weights from the registry.`,
+     `Nothing is served until tens or hundreds of gigabytes reach GPU memory, so cold-start time decides how much spare capacity must be kept warm.`]},
+ kv:{label:'Offload and restore context',seq:['poola','kvstore','poolb'],k:'Traced flow',t:'Moving a conversation through shared storage',
+  d:[`A conversation goes quiet. Its worker writes the KV cache to the shared context tier and frees the GPU memory.`,
+     `When the user returns, any worker with capacity reads it back and continues, even one in a different pool, instead of prefilling the whole history again.`]}
+};
+const CFLOWS={
+ req:{label:'Request in, tokens out',seq:['inet','fes1','fel2','rack2'],k:'Traced flow',t:'North-south: the request path',
+  d:[`A request enters at the border, is load-balanced to a rack, and lands on a server's DPU. The response streams back the same way for as long as the answer takes to generate.`,
+     `Kilobytes of payload, but millions of long-lived connections. This is the network that defines availability.`]},
+ load:{label:'Weights load',seq:['weights','be1','rack1'],k:'Traced flow',t:'Loading a model',
+  d:[`A new replica pulls its weights from the model store to local flash and then into GPU memory. It is a one-off bulk transfer, but it sets cold-start time for the whole fleet.`]},
+ xfer:{label:'KV transfer',seq:['rack1','be1','rack3'],k:'Traced flow',t:'East-west: KV-cache hand-off',
+  d:[`In disaggregated serving, a prefill worker in one rack sends the KV cache to a decode worker in another over RDMA. Gigabytes per long prompt, and the user is waiting while it moves.`]},
+ ctx:{label:'Context offload',seq:['rack4','be2','ctx'],k:'Traced flow',t:'Offload to context memory storage',
+  d:[`Idle KV cache is written to shared flash and restored later by whichever server continues the conversation.`]}
+};
+const PATHS={
+ req:{g:'Request',label:'Prompt in',seq:['frontend','dpu','cpu','psw0','gpu0'],k:'Lifecycle · 1',t:'Prompt in: tokenise and prefill',
+  steps:[`The request arrives at the DPU, which terminates TLS.`,`The CPU parses it, <b>tokenises</b> the text into integer IDs and queues it for the next batch.`,`Token IDs cross PCIe to the GPU. This is a few kilobytes.`,`<b>Prefill:</b> the GPU processes every prompt token in parallel and writes their keys and values into the KV cache.`],
+  verdict:`The data sent to the GPU is tiny. The work it triggers is not: prefill is the compute-heavy phase and sets time to first token.`},
+ tp:{g:'Request',label:'Across GPUs (NVLink)',seq:['gpu0','nvl','gpu3'],k:'Lifecycle · 2',t:'Tensor parallelism over NVLink',
+  steps:[`The model's layers are split across the four GPUs.`,`At the end of each attention and MLP block the GPUs exchange partial results over NVLink.`,`This repeats for every layer, for every token generated.`],
+  verdict:`Thousands of small synchronised exchanges per second. Latency on this link adds directly to every token, which is why multi-GPU models need a scale-up fabric rather than Ethernet.`},
+ stream:{g:'Request',label:'Tokens out',seq:['gpu2','psw1','cpu','dpu','frontend'],k:'Lifecycle · 3',t:'Decode and stream',
+  steps:[`<b>Decode:</b> each step, the GPU reads the weights and the KV cache and produces one new token per request in the batch.`,`The token ID returns to the CPU, which applies sampling rules, detokenises it to text and checks for stop conditions.`,`The text is written to the open stream and leaves through the DPU.`,`The loop repeats until the answer ends.`],
+  verdict:`One trip around this loop per token. Decode speed is set by GPU memory bandwidth and batch size; everything outside the GPU must simply not get in the way.`},
+ 'load-cold':{g:'Model loading',label:'Cold start from network',seq:['backend','nic0','psw0','nvme0','psw0','gpu0'],k:'Data path · model loading',t:'Cold start: weights from the model store',
+  steps:[`The engine requests the weight files from object or network storage.`,`They arrive through the NIC and are written to local NVMe as a cache.`,`They are then read from NVMe into GPU memory.`],
+  verdict:`For a 140 GB model this is minutes over a busy network. Streaming loaders shorten it by filling GPU memory while the download is still in progress.`},
+ 'load-warm':{g:'Model loading',label:'Warm start from NVMe',seq:['nvme0','psw0','gpu1'],k:'Data path · model loading',t:'Warm start with GPUDirect Storage',
+  steps:[`The weights are already cached on local flash.`,`The SSD writes directly into GPU memory through the PCIe switch, bypassing the CPU and system RAM.`],
+  verdict:`Tens of seconds instead of minutes. This is why every inference server carries local flash.`},
+ 'kv-g2':{g:'KV-cache tiers',label:'Tier 2 · host DRAM',seq:['gpu1','psw0','cpu','ddr'],k:'Data path · KV cache',t:'Offload to host memory',
+  steps:[`A conversation pauses. The engine picks its KV blocks for eviction.`,`They are copied over PCIe into pinned host RAM.`,`The GPU memory is reused for an active request.`],
+  verdict:`The cheapest tier to return from: a 31 GB context comes back in about half a second over a Gen5 x16 link.`},
+ 'kv-g3':{g:'KV-cache tiers',label:'Tier 3 · local NVMe',seq:['gpu1','psw0','nvme0'],k:'Data path · KV cache',t:'Offload to local flash',
+  steps:[`Blocks that have been idle longer are written to NVMe with GPUDirect Storage.`,`They are read back the same way when the conversation resumes.`],
+  verdict:`An order of magnitude more capacity than DRAM. Slower, and tied to this server: if it fails or the router sends the user elsewhere, the cache is lost.`},
+ 'kv-g4':{g:'KV-cache tiers',label:'Tier 4 · network',seq:['gpu0','psw0','nic0','backend'],k:'Data path · KV cache',t:'Send over RDMA: shared storage or another worker',
+  steps:[`The NIC reads KV blocks directly from GPU memory (GPUDirect RDMA).`,`It sends them over the east-west fabric.`,`The destination is either the shared context-memory tier or a decode worker waiting to continue the request.`],
+  verdict:`The only tier that lets a <i>different</i> server pick up the conversation. It is also the hand-off used by disaggregated serving.`}
+};
+
+const INTRO={
+ serve:{k:'Step 1 of 5',t:'The serving path: from prompt to tokens',
+  d:[`Inference is millions of small, independent jobs with deadlines. A request crosses several layers of control before it reaches a GPU, and most of the engineering is in deciding <b>which</b> GPU.`,
+     `Read it top to bottom. The <b>edge</b> picks a region. The <b>gateway</b> authenticates and meters. The <b>router</b> picks a worker, preferring one that already holds the conversation's KV cache. <b>Workers</b> run the model. Underneath sit the <b>weights</b> they load and the shared <b>KV-cache tier</b> they page into.`,
+     `On the right, telemetry feeds an autoscaler that resizes the pools.`],
+  tryit:[`Switch the serving stack and watch the control components rename.`,`Switch to disaggregated mode: an orange KV-transfer link appears between the pools.`,`Trace a chat request in each mode.`,`Click the router.`]},
+ cluster:{k:'Step 2 of 5',t:'The cluster: frontend first',
+  d:[`The physical view. Compare it with the training cluster: the picture is turned upside down.`,
+     `In training the east-west backend was the main event. Here the <b>frontend (violet)</b> is at the top because it carries the product: requests in, tokens out.`,
+     `The <b>east-west fabric (orange)</b> is smaller. It exists for KV-cache hand-off, for models that span racks, and to reach the weight and context stores. <b>Scale-up (green)</b> still binds the accelerators inside each rack.`],
+  tryit:[`Step through the accelerator platforms: this is the most varied layer in inference.`,`Trace "KV transfer" and "Context offload" to see what the east-west fabric is for.`],
+  href:TRAIN('v=cluster','Open the training cluster for comparison')},
+ node:{k:'Step 3 of 5',t:'Inside an inference server: a memory hierarchy',
+  d:[`Four GPUs serving one 70B-parameter model with tensor parallelism. The bar inside each GPU is its <b>memory map</b>: weights at the bottom, KV cache above, a small runtime reserve on top.`,
+     `Weights are fixed. KV cache grows with every token of every live request and is what runs out. When it does, blocks move down the hierarchy: <b>tier 1</b> GPU memory, <b>tier 2</b> host DRAM, <b>tier 3</b> local NVMe, <b>tier 4</b> network storage.`,
+     `The CPU does real work here: tokenising, scheduling the batch, streaming responses.`],
+  tryit:[`Change the weight precision and watch the memory maps and the capacity figure.`,`Click a segment of a memory map.`,`Hover a PCIe switch to see what shares it.`]},
+ compare:{k:'Step 5 of 5',t:'Compare'}
+};
+
+/* ───────────── scene builder ───────────── */
+function mk(w,h){
+  const S={w,h,nodes:[],links:[],zones:[],notes:[],by:{}};
+  S.z=(x,y,w,h,label)=>S.zones.push({x,y,w,h,label});
+  S.n=(id,x,y,w,h,label,sub,o={})=>{const n=Object.assign({id,x,y,w,h,label,sub,info:id.replace(/\d+$/,'')},o);S.nodes.push(n);S.by[id]=n;return n;};
+  S.t=(x,y,text,sw)=>S.notes.push({x,y,text,sw});
+  S.p=(id,side,f=.5)=>{const n=S.by[id];
+    return side==='t'?[n.x+n.w*f,n.y]:side==='b'?[n.x+n.w*f,n.y+n.h]:side==='l'?[n.x,n.y+n.h*f]:[n.x+n.w,n.y+n.h*f];};
+  S.l=(type,a,pa,b,pb,o={})=>{const p1=S.p(a,...pa),p2=S.p(b,...pb);let pts;
+    if(o.pts)pts=[p1,...o.pts,p2];
+    else if(o.r==='z'){const m=o.m??(p1[1]+p2[1])/2;pts=[p1,[p1[0],m],[p2[0],m],p2];}
+    else if(o.r==='zh'){const m=o.m??(p1[0]+p2[0])/2;pts=[p1,[m,p1[1]],[m,p2[1]],p2];}
+    else pts=[p1,p2];
+    S.links.push({type,a,b,pts,label:o.label});};
+  return S;
+}
+
+function sceneServe(s){
+  const S=mk(1180,700),K=STACK[s.stack],M=MODE[s.mode];
+  S.z(20,14,1140,92,'CLIENTS AND EDGE');
+  S.z(20,118,1140,206,'REGIONAL CONTROL · ADMIT, ROUTE, SCALE');
+  S.z(20,336,1140,222,'GPU WORKERS · '+(s.mode==='dis'?'SPLIT BY PHASE':'EACH RUNS PREFILL AND DECODE'));
+  S.z(20,570,1140,116,'STATE · WHAT WORKERS LOAD AND PAGE');
+  S.n('users',60,42,220,46,'Users and apps','chat · agents · batch');
+  S.n('edge',480,42,220,46,'Global load balancer','anycast · TLS · region choice',{cls:'sw',tone:'frontend'});
+  S.n('regions',900,42,220,46,'Other regions','overflow · failover',{cls:'ext'});
+  S.n('safety',60,148,220,48,'Safety filters','input and output classifiers');
+  S.n('gateway',480,148,220,48,K.gw,K.gsub,{cls:'sw',tone:'frontend'});
+  S.n('obs',900,148,220,48,'Metering and telemetry','tokens · latency · billing',{tone:'mgmt'});
+  S.n('tools',60,250,220,52,'Retrieval and tools','vector index · search · sandbox');
+  S.n('router',480,250,220,52,K.rt,K.rsub,{cls:'sw',tone:'frontend'});
+  S.n('planner',900,250,220,52,K.pl,K.psub,{tone:'mgmt'});
+  S.l('frontend','users',['r',.5],'edge',['l',.5],{label:'HTTPS · streamed response'});
+  S.l('frontend','edge',['r',.5],'regions',['l',.5],{label:'overflow to another region'});
+  S.l('frontend','edge',['b',.5],'gateway',['t',.5]);
+  S.l('frontend','gateway',['l',.35],'safety',['r',.5],{label:'screen prompt and output'});
+  S.l('frontend','gateway',['l',.75],'tools',['r',.5],{r:'zh',label:'retrieval and tool calls'});
+  S.l('frontend','gateway',['b',.5],'router',['t',.5]);
+  S.l('mgmt','gateway',['r',.5],'obs',['l',.5],{label:'usage records'});
+  S.l('mgmt','obs',['b',.5],'planner',['t',.5],{label:'latency and queue metrics'});
+  S.l('mgmt','router',['r',.5],'planner',['l',.5],{label:'worker load and cache state'});
+  [['poola',60,M.pa,M.wa,'pa'],['poolb',620,M.pb,M.wb,'pb']].forEach(([id,x,label,wsub,w],pi)=>{
+    S.n(id,x,364,500,180,label,'',{cls:'cont',labelTop:true,info:'pool'});
+    for(let i=0;i<3;i++){S.n(w+i,x+20+i*160,400,140,116,K.wk+' '+(pi*3+i+1),wsub,{cls:'gpu',info:'worker',parent:id});
+      S.l('frontend','router',['b',(pi*3+i+1)/7],w+i,['t',.5],{label:'routed request'});}
+  });
+  if(s.mode==='dis')S.l('scaleout','pa2',['r',.5],'pb0',['l',.5],{label:'KV-cache transfer over RDMA'});
+  S.l('mgmt','planner',['b',.5],'poolb',['t',.78],{label:'scale this pool'});
+  S.l('mgmt','planner',['b',.2],'poola',['t',.96],{r:'z',m:350,label:'scale this pool'});
+  S.n('weights',60,604,500,58,'Model registry and weights','object store → local NVMe cache → GPU memory',{tone:'storage'});
+  S.n('kvstore',620,604,500,58,'KV cache / context memory tier','shared flash over RDMA · '+K.kv,{tone:'storage'});
+  S.l('storage','poola',['b',.4],'weights',['t',.4],{label:'weight loading'});
+  S.l('storage','poolb',['b',.1],'weights',['t',.9],{label:'weight loading'});
+  S.l('storage','poola',['b',.9],'kvstore',['t',.1],{label:'KV offload and restore'});
+  S.l('storage','poolb',['b',.6],'kvstore',['t',.6],{label:'KV offload and restore'});
+  return S;
+}
+
+function sceneCluster(s){
+  const S=mk(1180,700),P=PLAT[s.plat];
+  S.z(20,14,1140,188,'FRONTEND · NORTH-SOUTH · REQUESTS IN, TOKENS OUT');
+  S.z(20,214,1140,238,'COMPUTE · INFERENCE RACKS');
+  S.z(20,476,1140,210,'EAST-WEST AND STORAGE · KV TRANSFER, WEIGHTS, CONTEXT MEMORY');
+  const xs=[50,330,610,890];
+  S.n('inet',480,36,220,34,'Internet / backbone','',{cls:'ext sm'});
+  S.n('fes1',200,92,300,40,'Frontend spine 1','border · load balancers',{cls:'sw',tone:'frontend',info:'fes'});
+  S.n('fes2',680,92,300,40,'Frontend spine 2','border · load balancers',{cls:'sw',tone:'frontend',info:'fes'});
+  S.l('frontend','inet',['b',.3],'fes1',['t',.6]);S.l('frontend','inet',['b',.7],'fes2',['t',.4]);
+  xs.forEach((x,i)=>{const r='rack'+(i+1),y=244,f='fel'+(i+1);
+    S.n(f,x+30,152,170,38,'Frontend leaf '+(i+1),'top of rack',{cls:'sw',tone:'frontend',info:'fel'});
+    S.l('frontend','fes1',['b',(i+1)/5],f,['t',.35]);S.l('frontend','fes2',['b',(i+1)/5],f,['t',.65]);
+    S.n(r,x,y,230,198,'Rack '+(i+1),'',{cls:'cont',labelTop:true,info:'rackpod'});
+    S.l('frontend',f,['b',.5],r,['t',.5],{label:'server DPUs'});
+    const ty=[y+28,y+58,y+126,y+156];
+    ty.forEach((v,j)=>S.n(r+'n'+j,x+36,v,180,26,P.tray,'',{cls:'sm',info:'server',parent:r}));
+    S.n(r+'su',x+36,y+92,180,26,P.su,'',{cls:'sm sw',tone:'scaleup',info:'su',parent:r});
+    ty.forEach((v,j)=>S.l('scaleup',r+'n'+j,['l',.5],r+'su',['l',.5],{pts:[[x+20,v+13],[x+20,y+105]]}));
+  });
+  S.n('be1',330,506,230,42,'East-west leaf 1','RDMA · 200–400G',{cls:'sw',tone:'scaleout',info:'be'});
+  S.n('be2',620,506,230,42,'East-west leaf 2','RDMA · 200–400G',{cls:'sw',tone:'scaleout',info:'be'});
+  xs.forEach((x,i)=>{S.l('scaleout','rack'+(i+1),['b',.42],'be1',['t',(i+1)/5],{label:'server RDMA NICs'});S.l('scaleout','rack'+(i+1),['b',.58],'be2',['t',(i+1)/5],{label:'server RDMA NICs'});});
+  S.n('weights',50,610,320,60,'Model weights store','object storage',{tone:'storage'});
+  S.n('ctx',400,610,360,60,'Context memory storage','KV-cache tier · flash over RDMA',{tone:'storage'});
+  S.n('ctrl',790,610,340,60,'Control plane','Kubernetes · gateway · router · autoscaler',{tone:'mgmt'});
+  S.l('storage','be1',['b',.2],'weights',['t',.6]);S.l('storage','be1',['b',.6],'ctx',['t',.3]);S.l('storage','be2',['b',.3],'ctx',['t',.7]);
+  S.l('mgmt','be2',['b',.8],'ctrl',['t',.4]);
+  return S;
+}
+
+function sceneNode(s){
+  const S=mk(1180,700),W=PREC[s.prec].w,KV=kvGB(s);
+  S.z(20,62,1140,566,'INFERENCE SERVER · 4 GPUS · ONE 70B MODEL, TENSOR-PARALLEL');
+  S.n('frontend',770,12,160,34,'Frontend network','',{cls:'ext sm'});
+  S.n('ddr',250,92,150,60,'DDR5 · tier 2','host RAM · KV overflow',{tone:'mem'});
+  S.n('cpu',480,88,220,68,'CPU','tokenise · schedule · stream');
+  S.n('dpu',780,92,140,60,'DPU','frontend NIC · TLS',{tone:'frontend'});
+  S.l('mem','ddr',['r',.5],'cpu',['l',.5],{label:'DDR5 memory channels'});
+  S.l('pcie','cpu',['r',.5],'dpu',['l',.5],{label:'PCIe · CPU to DPU'});
+  S.l('frontend','dpu',['t',.5],'frontend',['b',.5],{label:'requests in, tokens out'});
+  S.n('backend',40,644,1100,40,'East-west RDMA fabric','KV transfer · other workers · network storage (tier 4)',{cls:'ext'});
+  const G=[{psw:150,nic:40,nvme:290,gpus:[110,350],nl:70},{psw:690,nic:1050,nvme:800,gpus:[620,860],nl:1110}];
+  G.forEach((g,gi)=>{
+    S.n('psw'+gi,g.psw,212,340,44,'PCIe switch '+gi,'Gen5 fan-out',{cls:'sw',tone:'pcie'});
+    S.l('pcie','cpu',['b',gi?.75:.25],'psw'+gi,['t',.5],{r:'z',label:'PCIe x16 · root port to switch'});
+    S.n('nic'+gi,g.nic,304,90,44,'RDMA NIC','east-west',{cls:'sm',tone:'scaleout'});
+    S.n('nvme'+gi,g.nvme,304,90,44,'NVMe · tier 3','weights + KV',{cls:'sm',tone:'storage'});
+    S.l('pcie','psw'+gi,[gi?'r':'l',.5],'nic'+gi,['t',.5],{pts:[[g.nic+45,234]],label:'PCIe x16 · switch to NIC'});
+    S.l('pcie','psw'+gi,['b',(g.nvme+45-g.psw)/340],'nvme'+gi,['t',.5],{label:'PCIe x4 · switch to SSD'});
+    S.l('scaleout','nic'+gi,['b',gi?.67:.33],'backend',['t',(g.nl-40)/1100],{label:'to the east-west fabric'});
+    g.gpus.forEach((x,i)=>{const n=gi*2+i,y=392;
+      S.n('gpu'+n,x,y,210,130,'GPU '+n+' · 80 GB','',{cls:'gpu',labelTop:true});
+      S.l('pcie','psw'+gi,['b',(x+105-g.psw)/340],'gpu'+n,['t',.5],{label:'PCIe x16 · switch to GPU'});
+      S.n('hbm'+n,x+12,y+28,68,94,'','',{tone:'mem',parent:'gpu'+n,aria:'HBM'});
+      const H=86,ho=H*5/80,hk=H*KV/80,hw=H*W/80,x0=x+16,y0=y+32;
+      S.n('sego'+n,x0,y0,60,ho-1.5,'','',{cls:'seg-o',rx:1.5,parent:'gpu'+n,aria:'Runtime reserve'});
+      S.n('segk'+n,x0,y0+ho,60,hk-1.5,'','',{cls:'seg-k',rx:1.5,parent:'gpu'+n,aria:'KV cache'});
+      S.n('segw'+n,x0,y0+ho+hk,60,hw,'','',{cls:'seg-w',rx:1.5,parent:'gpu'+n,aria:'Weights'});
+      S.t(x+92,y+52,'Runtime 5 GB','seg-o');S.t(x+92,y+78,'KV cache '+fmt(KV)+' GB','seg-k');S.t(x+92,y+104,'Weights '+fmt(W)+' GB','seg-w');
+    });
+  });
+  S.n('nvl',440,572,300,40,'NVLink','scale-up between the GPUs',{cls:'sw',tone:'scaleup'});
+  [[0,.1],[1,.37],[2,.63],[3,.9]].forEach(([n,f])=>S.l('scaleup','gpu'+n,['b',.5],'nvl',['t',f],{label:'NVLink · GPU '+n}));
+  return S;
+}
+
+/* ───────────── rendering ───────────── */
+let scene=null;
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function resolve(v){return typeof v==='function'?v(state):v;}
+function ltName(t){const v=state.view;
+  if(v==='serve')return {frontend:'Request path',mgmt:'Control and metrics',storage:'Weights and KV storage',scaleout:'KV transfer · RDMA'}[t];
+  if(v==='cluster')return {frontend:'Frontend Ethernet · north-south',scaleout:'East-west RDMA',storage:'Storage I/O',scaleup:'Scale-up · '+PLAT[state.plat].short,mgmt:'Control'}[t];
+  return {pcie:'PCIe',scaleup:'Scale-up · NVLink',scaleout:'East-west RDMA',frontend:'Frontend Ethernet',mem:'Memory bus'}[t];}
+const dPath=pts=>'M'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join('L');
+
+function draw(){
+  const svg=$('#svg');svg.innerHTML='';
+  const S=scene=state.view==='serve'?sceneServe(state):state.view==='cluster'?sceneCluster(state):sceneNode(state);
+  svg.setAttribute('viewBox','0 0 '+S.w+' '+S.h);
+  S.zones.forEach(z=>el('rect',{class:'zone',x:z.x,y:z.y,width:z.w,height:z.h,rx:10},svg));
+  const gc=el('g',{},svg),gl=el('g',{},svg),gn=el('g',{},svg);
+  S.links.forEach((l,i)=>{const g=el('g',{class:'link lt-'+l.type,'data-i':i},gl),d=dPath(l.pts);el('path',{class:'vis',d},g);el('path',{class:'hit',d},g);});
+  S.nodes.forEach(n=>{
+    const g=el('g',{class:'node '+(n.cls||'')+(n.tone?' tone-'+n.tone:'')+(state.sel===n.id?' sel':''),'data-id':n.id,tabindex:0,role:'button','aria-label':n.aria||[n.label,n.sub].filter(Boolean).join(', ')},/\bcont\b/.test(n.cls||'')?gc:gn);
+    el('rect',{class:'box',x:n.x,y:n.y,width:n.w,height:Math.max(n.h,1),rx:n.rx??6},g);
+    if(n.label){const cx=n.x+n.w/2,ty=n.labelTop?n.y+18:n.y+n.h/2+(n.sub?-2:4.5);
+      el('text',{class:'lb',x:cx,y:ty},g).textContent=n.label;
+      if(n.sub)el('text',{class:'sb',x:cx,y:ty+14},g).textContent=n.sub;}
+  });
+  S.zones.forEach(z=>{if(z.label)el('text',{class:'zl',x:z.x+12,y:z.y+17},svg).textContent=z.label;});
+  S.notes.forEach(t=>{
+    if(t.sw){const g=el('g',{class:'swatch '+t.sw,'pointer-events':'none'},svg);el('rect',{class:'box',x:t.x,y:t.y-9,width:10,height:10,rx:2},g);}
+    el('text',{class:'note'+(t.sw?' l':''),x:t.x+(t.sw?15:0),y:t.y},svg).textContent=t.text;});
+  applyFocus();
+}
+
+function findLink(a,b){return scene.links.findIndex(l=>(l.a===a&&l.b===b)||(l.a===b&&l.b===a));}
+function currentSeq(){
+  if(state.view==='paths')return PATHS[state.path].seq;
+  if(state.view==='serve'&&state.flow)return resolve(FLOWS[state.flow]).seq;
+  if(state.view==='cluster'&&state.cflow)return CFLOWS[state.cflow].seq;
+  return null;
+}
+function applyFocus(){
+  const svg=$('#svg');svg.classList.remove('focus');
+  const seq=currentSeq();
+  let onL=new Set(),onN=new Set();
+  if(seq){
+    let pts=[];
+    for(let i=0;i<seq.length-1;i++){const li=findLink(seq[i],seq[i+1]);if(li<0){document.documentElement.setAttribute('data-err','no link '+seq[i]+'>'+seq[i+1]);continue;}
+      onL.add(li);const l=scene.links[li];pts=pts.concat(l.a===seq[i]?l.pts:[...l.pts].reverse());}
+    seq.forEach(id=>onN.add(id));
+    let len=0;for(let i=1;i<pts.length;i++)len+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
+    const dur=Math.max(2.2,len/150),g=el('g',{'pointer-events':'none'},svg);
+    for(let k=0;k<3;k++){const c=el('circle',{class:'pkt',r:6},g);
+      el('animateMotion',{dur:dur.toFixed(2)+'s',repeatCount:'indefinite',begin:(-k*dur/3).toFixed(2)+'s',path:dPath(pts)},c);}
+  }else if(state.iso){
+    scene.links.forEach((l,i)=>{if(l.type===state.iso){onL.add(i);onN.add(l.a);onN.add(l.b);}});
+  }else return;
+  scene.nodes.forEach(n=>{if(n.parent&&onN.has(n.parent))onN.add(n.id);});
+  scene.nodes.forEach(n=>{if(n.parent&&onN.has(n.id))onN.add(n.parent);});
+  svg.classList.add('focus');
+  svg.querySelectorAll('.link').forEach(g=>g.classList.toggle('on',onL.has(+g.dataset.i)));
+  svg.querySelectorAll('.node[data-id]').forEach(g=>g.classList.toggle('on',onN.has(g.dataset.id)));
+}
+
+function seg(label,opts,cur,act){
+  return `<div class="ctl"><span class="ctl-l">${label}</span><div class="seg" role="group" aria-label="${label}">`+
+    opts.map(([k,l])=>`<button data-act="${act}" data-key="${k}" aria-pressed="${k===cur}">${l}</button>`).join('')+`</div></div>`;
+}
+function drawControls(){
+  let h='',cap='';const v=state.view;
+  if(v==='serve'){
+    h=seg('Serving stack',Object.entries(STACK).map(([k,x])=>[k,x.short]),state.stack,'stack')+
+      seg('Serving mode',Object.entries(MODE).map(([k,x])=>[k,x.short]),state.mode,'mode')+
+      seg('Trace a flow',[['','Off'],...Object.keys(FLOWS).map(k=>[k,resolve(FLOWS[k]).label])],state.flow,'flow');
+    cap=STACK[state.stack].tag;
+  }else if(v==='cluster'){
+    h=seg('Accelerator platform',Object.entries(PLAT).map(([k,x])=>[k,x.short]),state.plat,'plat')+
+      seg('Trace a flow',[['','Off'],...Object.entries(CFLOWS).map(([k,x])=>[k,x.label])],state.cflow,'cflow');
+    cap=PLAT[state.plat].tag;
+  }else if(v==='node'){
+    h=seg('Weight precision',Object.entries(PREC).map(([k,x])=>[k,x.label]),state.prec,'prec');
+    const t=kvTok(state);
+    cap=`${PREC[state.prec].label}: ${fmt(PREC[state.prec].w)} GB of weights and ${fmt(kvGB(state))} GB of KV cache per GPU. Room for about ${t}k tokens of live context, or ${Math.floor(t/8)} conversations of 8k tokens.`;
+  }else if(v==='paths'){
+    const groups={};Object.entries(PATHS).forEach(([k,x])=>(groups[x.g]=groups[x.g]||[]).push([k,x.label]));
+    h=Object.entries(groups).map(([g,o])=>seg(g,o,state.path,'path')).join('');
+    cap='Follow one request through the server, then see how weights get in and where KV cache goes when GPU memory fills.';
+  }
+  $('#controls').innerHTML=h;$('#caption').textContent=cap;
+}
+function drawLegend(){
+  const types=[...new Set(scene.links.map(l=>l.type))];
+  $('#legend').innerHTML='<span class="row-l">Links</span>'+types.map(t=>
+    `<button class="chip" data-lt="${t}" aria-pressed="${state.iso===t}"><svg viewBox="0 0 30 10" class="link lt-${t}"><path class="vis" d="M2,5L28,5"/></svg>${ltName(t)}</button>`).join('');
+  const cs={serve:['phases','route','disagg','batch','scale','slo'],cluster:['tvi','par','tiers','disagg'],node:['kv','tiers','quant','par','batch'],paths:['phases','kv','tiers','gpudirect']}[state.view]||[];
+  $('#concepts').innerHTML='<span class="row-l">Concepts</span>'+cs.map(c=>
+    `<button class="chip" data-concept="${c}" aria-pressed="${state.panel.kind==='concept'&&state.panel.key===c}">${CONCEPTS[c].t}</button>`).join('');
+}
+function infoHTML(i){
+  let h=`<div class="kick">${i.k||''}</div><h2>${i.t}</h2>`;
+  (i.d||[]).forEach(p=>h+=`<p>${p}</p>`);
+  if(i.steps)h+=`<ol>${i.steps.map(s=>`<li>${s}</li>`).join('')}</ol>`;
+  if(i.verdict)h+=`<p class="verdict">${i.verdict}</p>`;
+  if(i.tryit)h+=`<h3>Try this</h3><ul>${i.tryit.map(s=>`<li>${s}</li>`).join('')}</ul>`;
+  if(i.specs)h+=`<h3>Key facts</h3><dl>${i.specs.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+  if(i.alt)h+=`<h3>Competing and alternative technologies</h3><ul>${i.alt.map(([k,v])=>`<li><b>${k}</b>: ${v}</li>`).join('')}</ul>`;
+  if(i.dep)h+=`<h3>Where it is deployed</h3><p>${i.dep}</p>`;
+  if(i.go)h+=`<button class="go" data-go="${i.go[0]}">${i.go[1]} →</button>`;
+  if(i.href)h+=`<a class="xlink" href="${i.href[0]}">${i.href[1]} ↗</a>`;
+  return h;
+}
+function drawPanel(){
+  const p=state.panel;let i,back=true;
+  if(p.kind==='node')i=resolve(INFO[p.key]);
+  else if(p.kind==='link')i=resolve(LINKINFO[p.key]);
+  else if(p.kind==='concept')i=CONCEPTS[p.key];
+  else if(p.kind==='tech')i=p.key==='stack'?STACK[state.stack].info:p.key==='mode'?MODE[state.mode].info:PLAT[state.plat].info;
+  else if(p.kind==='flow'){if(state.view==='serve'&&state.flow)i=resolve(FLOWS[state.flow]);if(state.view==='cluster'&&state.cflow)i=CFLOWS[state.cflow];}
+  if(!i&&state.view==='paths'){i=PATHS[state.path];back=false;}
+  if(!i){i=INTRO[state.view];back=false;}
+  let h=(back?'<button class="back" data-back="1">← Step overview</button>':'')+infoHTML(i);
+  if(!back){const n=VIEWS.findIndex(v=>v[0]===state.view)+1;if(n<VIEWS.length)h+=`<div><button class="go" data-go="${VIEWS[n][0]}">Next: ${VIEWS[n][1]} →</button></div>`;}
+  $('#panel').innerHTML=h;$('#panel').scrollTop=0;
+}
+
+/* ───────────── compare tab ───────────── */
+function drawCompare(){
+  const bars=[['Tier 1 · GPU HBM (on package)','mem',4800],['Tier 2 · host DRAM over PCIe Gen5 x16','pcie',63],['Tier 4 · network storage over 400G RDMA','scaleout',50],['Tier 3 · one Gen5 NVMe drive','storage',14]];
+  const tbl=(head,rows)=>`<div class="scroll"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  $('#compare').innerHTML=`
+  <div class="card"><h2>How fast each memory tier reaches the GPU</h2>
+   <p class="lede">Gigabytes per second. HBM is the only tier the GPU computes on; everything below it is two orders of magnitude slower and must be copied back first. Even so, restoring a 31 GB context (100,000 tokens of the 70B example) takes about half a second from host DRAM, well under a second over 400G RDMA, and a couple of seconds from a single SSD, usually far less than recomputing the prefill. Drives are normally striped, which multiplies the tier-3 figure.</p>
+   <div class="key"><span><i style="background:var(--c-mem)"></i>Memory bus</span><span><i style="background:var(--c-pcie)"></i>PCIe</span><span><i style="background:var(--c-scaleout)"></i>East-west RDMA</span><span><i style="background:var(--c-storage)"></i>Storage</span></div>
+   <div class="bars">${bars.map(([n,t,v])=>`<div class="bl">${n}</div><div class="bt" title="${n}: about ${v} GB/s"><div class="bar" style="width:${(v/4800*88).toFixed(2)}%;background:var(--c-${t})"></div><span class="bv">${v.toLocaleString()} GB/s</span></div>`).join('')}</div>
+  </div>
+  <div class="card"><h2>Training and inference, side by side</h2><p class="lede">The same components, wired for opposite goals.</p>
+  ${tbl(['','Training','Inference'],[
+   ['Workload','One enormous job; every GPU synchronised','Millions of small independent requests'],
+   ['Goal','Finish the run sooner','Meet latency targets at the lowest cost per token'],
+   ['Critical network','East-west backend, one NIC per GPU','Frontend; east-west is smaller but growing'],
+   ['Scale-up links','Gradient and activation exchange across the pod','Models split across GPUs; KV hand-off within a rack'],
+   ['Scarce resource','GPU compute and network bandwidth','GPU memory capacity and bandwidth'],
+   ['Storage role','Feed the dataset, absorb checkpoints','Load weights quickly; page KV cache'],
+   ['Host CPU','Data loading','Tokenising, scheduling, streaming: on the latency path'],
+   ['Load shape','Flat, 100% for weeks','Follows users through the day; bursts'],
+   ['Failure','Restart from checkpoint','Must stay up; reroute and degrade gracefully'],
+   ['Numerics','16-bit or mixed precision','Quantised to 8 or 4 bits where accuracy allows']])}</div>
+  <div class="card"><h2>Accelerators for inference</h2><p class="lede">The most varied layer. The dividing line is where the model's weights live, because decode speed is memory bandwidth.</p>
+  ${tbl(['Platform','Vendor','Where weights live','Interconnect','Strength','Seen at'],[
+   ['GPU, HBM','NVIDIA H200, B200 / B300, Rubin','141–288 GB HBM per GPU','NVLink','Flexibility, software, throughput at large batch','Every cloud and most providers'],
+   ['GPU, HBM','AMD Instinct MI300X to MI450','192–432 GB HBM per GPU','Infinity Fabric, then UALink','Most memory per GPU','Azure, Meta, Oracle; OpenAI from 2026'],
+   ['Prefill-specialised GPU','NVIDIA Rubin CPX (announced)','128 GB GDDR7','PCIe within a Rubin rack','Cheap compute for very long contexts','Announced 2025'],
+   ['Cloud ASIC','Google TPU (Ironwood)','192 GB HBM per chip','ICI torus','Cost per token at Google scale','Google, Anthropic'],
+   ['Cloud ASIC','AWS Trainium 2 / 3, Inferentia 2','HBM','NeuronLink','Cost per token inside AWS','AWS Bedrock, Anthropic'],
+   ['Cloud ASIC','Microsoft Maia, Meta MTIA, OpenAI with Broadcom','HBM','Ethernet-based','Tuned to one operator\'s models','Their owners'],
+   ['SRAM, many chips','Groq LPU','On-chip SRAM','Direct chip-to-chip','Very fast, predictable decode','GroqCloud; technology licensed by NVIDIA'],
+   ['SRAM, wafer-scale','Cerebras WSE-3','44 GB on-wafer SRAM','On-wafer mesh','Fastest single-stream output','Cerebras cloud, OpenAI, Meta'],
+   ['Three-tier memory','SambaNova SN40L','SRAM + HBM + DDR','Ethernet','Many models held ready on one system','SambaNova Cloud'],
+   ['LPDDR-based','Qualcomm AI200 / AI250, Intel Crescent Island','160–768 GB LPDDR per card','PCIe, Ethernet','Capacity and power efficiency over peak speed','Announced; early deployments'],
+   ['Other startups','d-Matrix, Tenstorrent, Etched, Positron','Varies','Varies','Narrow, efficiency-focused designs','Pilots']])}</div>
+  <div class="card"><h2>Serving software</h2><p class="lede">Two layers: an engine that drives the GPUs, and an orchestration layer that routes and scales across them.</p>
+  ${tbl(['Layer','Project','Backed by','What it is known for'],[
+   ['Engine','vLLM','UC Berkeley origin; broad community','PagedAttention and continuous batching; the default open engine'],
+   ['Engine','SGLang','LMSYS origin','Fast structured generation and prefix-cache reuse'],
+   ['Engine','TensorRT-LLM','NVIDIA','Compiled, hardware-specific kernels for peak NVIDIA performance'],
+   ['Engine','Text Generation Inference','Hugging Face','Production server for Hub models'],
+   ['Engine','llama.cpp','Community','CPU, edge and small-GPU inference with GGUF quantisation'],
+   ['Orchestration','NVIDIA Dynamo','NVIDIA','KV-aware routing, SLO planner, KV tiering, disaggregation'],
+   ['Orchestration','llm-d','Red Hat, Google, IBM, CoreWeave, NVIDIA','Kubernetes Gateway API Inference Extension with vLLM'],
+   ['Orchestration','Ray Serve','Anyscale','Python-native composition of multi-model pipelines'],
+   ['Orchestration','KServe, Triton','Kubeflow community, NVIDIA','General model serving on Kubernetes, many model types'],
+   ['Orchestration','AIBrix','ByteDance','Control plane for vLLM fleets: LoRA management, autoscaling, routing'],
+   ['KV cache','LMCache, Mooncake','Open-source projects','Shared and tiered KV-cache stores']])}</div>
+  <div class="card"><h2>Techniques and what they buy</h2><p class="lede">Most gains come from software. Each technique trades something.</p>
+  ${tbl(['Technique','What it does','Improves','Costs'],[
+   ['Continuous batching','Requests join and leave the batch at every step','Throughput per GPU','Slightly higher per-token latency at large batch'],
+   ['Paged KV memory','KV cache in fixed blocks; shared prefixes','Memory efficiency, concurrency','Bookkeeping'],
+   ['Prefix / prompt caching','Reuse KV cache for a repeated prefix','Time to first token, cost','GPU memory held for idle contexts'],
+   ['Cache-aware routing','Send a request where its prefix is cached','Cache hit rate','Less even load'],
+   ['KV-cache tiering','Page idle KV to DRAM, flash, network','Contexts held per GPU','Restore latency, fast storage and network'],
+   ['Disaggregated prefill / decode','Separate pools per phase','Tail latency, independent scaling','KV transfer, east-west fabric'],
+   ['Chunked prefill','Slice long prompts across steps','Decode latency for neighbours','Slower first token for the long prompt'],
+   ['Quantisation','8-bit or 4-bit weights','Memory and decode speed','Accuracy, per-model validation'],
+   ['Speculative decoding','A small model drafts tokens; the large one verifies several at once','Tokens per second','Extra model in memory; gain depends on acceptance rate'],
+   ['Tensor / expert parallelism','Split a model across GPUs','Serve models larger than one GPU','Needs scale-up links'],
+   ['Multi-LoRA serving','Many adapters on one base model','GPU sharing across customised models','Adapter-aware routing']])}</div>
+  <div class="card"><h2>Who runs what</h2><p class="lede">A simplified snapshot from public sources. Every operator mixes several platforms.</p>
+  ${tbl(['Operator','Inference hardware','Notes'],[
+   ['OpenAI','NVIDIA on Azure, Oracle and CoreWeave; Cerebras; AMD and a Broadcom-built accelerator announced','Diversifying away from a single supplier'],
+   ['Anthropic','AWS Trainium, Google TPU, NVIDIA','Multi-cloud across Amazon, Google and Microsoft'],
+   ['Google','TPU; NVIDIA for cloud customers','Vertically integrated from chip to model'],
+   ['Meta','NVIDIA, AMD, MTIA','MTIA carries ranking and recommendation inference'],
+   ['Microsoft Azure','NVIDIA, AMD MI300X, Maia','Hosts OpenAI models; Maia for first-party services'],
+   ['AWS Bedrock','NVIDIA, Trainium, Inferentia','Custom silicon for the highest-volume models'],
+   ['xAI','NVIDIA','Training and inference on the same clusters'],
+   ['Inference clouds','Together, Fireworks, Baseten on NVIDIA; Groq, Cerebras and SambaNova on their own silicon','Compete on speed and price for open models']])}</div>`;
+}
+
+/* ───────────── state, events ───────────── */
+function setHash(){
+  const o={v:state.view,k:state.stack,m:state.mode,a:state.plat,q:state.prec};
+  if(state.flow)o.fl=state.flow;if(state.cflow)o.cf=state.cflow;if(state.view==='paths')o.p=state.path;if(state.sel)o.s=state.sel;if(state.iso)o.i=state.iso;
+  history.replaceState(null,'','#'+new URLSearchParams(o));
+}
+function render(){
+  $('#steps').innerHTML=VIEWS.map(([k,l],i)=>`<button data-view="${k}" aria-current="${k===state.view}"><i>${i+1}</i>${l}</button>`).join('');
+  const cmp=state.view==='compare';
+  $('#stage').hidden=cmp;$('#panel').hidden=cmp;$('#compare').hidden=!cmp;
+  if(cmp)drawCompare();else{draw();drawControls();drawLegend();drawPanel();}
+  setHash();
+}
+function go(v){state.view=v;state.sel=null;state.iso=null;state.panel={kind:'intro'};render();window.scrollTo({top:0});}
+
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-view],[data-go],[data-back],[data-act],[data-lt],[data-concept]');
+  if(!t)return;
+  if(t.dataset.view)return go(t.dataset.view);
+  if(t.dataset.go)return go(t.dataset.go);
+  if(t.dataset.back){state.sel=null;state.panel={kind:'intro'};return render();}
+  if(t.dataset.act){const a=t.dataset.act,k=t.dataset.key;state.sel=null;state.iso=null;
+    if(a==='stack'){state.stack=k;state.panel={kind:'tech',key:'stack'};}
+    if(a==='mode'){state.mode=k;state.panel=state.flow?{kind:'flow'}:{kind:'tech',key:'mode'};}
+    if(a==='plat'){state.plat=k;state.panel={kind:'tech',key:'plat'};}
+    if(a==='prec'){state.prec=k;state.panel={kind:'node',key:'segk'};}
+    if(a==='flow'){state.flow=k;state.panel=k?{kind:'flow'}:{kind:'intro'};}
+    if(a==='cflow'){state.cflow=k;state.panel=k?{kind:'flow'}:{kind:'intro'};}
+    if(a==='path'){state.path=k;state.panel={kind:'intro'};}
+    return render();}
+  if(t.dataset.lt){const k=t.dataset.lt;state.iso=state.iso===k?null:k;state.sel=null;state.flow='';state.cflow='';
+    state.panel=state.iso?{kind:'link',key:k}:{kind:'intro'};return render();}
+  if(t.dataset.concept){state.sel=null;state.panel={kind:'concept',key:t.dataset.concept};return render();}
+});
+const svg=$('#svg'),tip=$('#tip');
+function pick(e){const n=e.target.closest('.node[data-id]');if(n)return{node:scene.by[n.dataset.id]};const l=e.target.closest('.link');if(l&&l.dataset.i!==undefined)return{link:scene.links[+l.dataset.i]};return{};}
+function select(p){
+  if(p.node){state.sel=p.node.id;state.panel={kind:'node',key:INFO[p.node.info]?p.node.info:'gpu'};}
+  else if(p.link){state.sel=null;state.panel={kind:'link',key:p.link.type};}
+  else return;
+  render();
+}
+svg.addEventListener('click',e=>select(pick(e)));
+svg.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();const id=e.target.dataset?.id;select(pick(e));if(id)$('#svg [data-id="'+id+'"]')?.focus();}});
+svg.addEventListener('mousemove',e=>{
+  const p=pick(e);let txt='';
+  svg.querySelectorAll('.hv').forEach(x=>x.classList.remove('hv'));
+  if(p.node){const i=resolve(INFO[p.node.info]),name=p.node.label||p.node.aria||'';txt='<b>'+(name||i?.t||'')+'</b>'+(i&&name!==i.t?'<br>'+i.t:'');
+    scene.links.forEach((l,ix)=>{if(l.a===p.node.id||l.b===p.node.id)svg.querySelector('.link[data-i="'+ix+'"]').classList.add('hv');});}
+  else if(p.link){txt='<b>'+ltName(p.link.type)+'</b>'+(p.link.label?'<br>'+p.link.label:'');e.target.closest('.link').classList.add('hv');}
+  svg.classList.toggle('hovering',!!svg.querySelector('.hv')&&!svg.classList.contains('focus'));
+  if(!txt){tip.style.opacity=0;return;}
+  const r=svg.parentNode.getBoundingClientRect();tip.innerHTML=txt;tip.style.opacity=1;
+  const x=Math.min(e.clientX-r.left+14,r.width-tip.offsetWidth-4);
+  tip.style.left=x+'px';tip.style.top=(e.clientY-r.top+16)+'px';
+});
+svg.addEventListener('mouseleave',()=>{tip.style.opacity=0;svg.classList.remove('hovering');svg.querySelectorAll('.hv').forEach(x=>x.classList.remove('hv'));});
+
+/* theme */
+const root=document.documentElement,mq=matchMedia('(prefers-color-scheme: dark)');let userTheme=null;
+function setTheme(t){root.dataset.theme=t;$('#theme').textContent=t==='dark'?'Light theme':'Dark theme';}
+$('#theme').addEventListener('click',()=>{userTheme=root.dataset.theme==='dark'?'light':'dark';setTheme(userTheme);});
+mq.addEventListener('change',()=>{if(!userTheme)setTheme(mq.matches?'dark':'light');});
+
+/* boot */
+(function(){
+  const q=new URLSearchParams(location.hash.slice(1));
+  if(VIEWS.some(v=>v[0]===q.get('v')))state.view=q.get('v');
+  if(STACK[q.get('k')])state.stack=q.get('k');
+  if(MODE[q.get('m')])state.mode=q.get('m');
+  if(PLAT[q.get('a')])state.plat=q.get('a');
+  if(PREC[q.get('q')])state.prec=q.get('q');
+  if(FLOWS[q.get('fl')]){state.flow=q.get('fl');if(state.view==='serve')state.panel={kind:'flow'};}
+  if(CFLOWS[q.get('cf')]){state.cflow=q.get('cf');if(state.view==='cluster')state.panel={kind:'flow'};}
+  if(PATHS[q.get('p')])state.path=q.get('p');
+  if(LINKINFO[q.get('i')]){state.iso=q.get('i');state.panel={kind:'link',key:state.iso};}
+  userTheme=q.get('t')==='dark'||q.get('t')==='light'?q.get('t'):null;
+  setTheme(userTheme||(mq.matches?'dark':'light'));
+  render();
+  const s=q.get('s');if(s&&scene&&scene.by[s])select({node:scene.by[s]});
+})();
+</script>
+</body>
+</html>

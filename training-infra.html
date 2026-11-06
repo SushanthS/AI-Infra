@@ -28,6 +28,11 @@ button{font:inherit;color:inherit;cursor:pointer}
 .top h1{margin:0;font-size:21px;font-weight:650;letter-spacing:-.01em}
 .top p{margin:2px 0 0;color:var(--text-secondary)}
 .theme{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;white-space:nowrap}
+.top-r{display:flex;gap:10px;align-items:center;flex:none}
+.pages{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)}
+.pages a{padding:6px 13px;text-decoration:none;color:inherit;font-size:13.5px}
+.pages a[aria-current]{background:var(--text-primary);color:var(--surface)}
+.xlink{display:inline-block;margin-top:12px;font-size:13px;color:var(--text-primary)}
 .steps{display:flex;flex-wrap:wrap;gap:8px;padding:16px 28px}
 .steps button{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:6px 14px 6px 6px}
 .steps button i{font-style:normal;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--node-2);font-size:12px;font-weight:650}
@@ -138,7 +143,10 @@ svg.focus .link.on .vis{stroke-width:4.5}
     <h1>AI Training Infrastructure</h1>
     <p>An interactive map of the compute, memory and network fabric behind large training clusters. Click anything.</p>
   </div>
-  <button class="theme" id="theme" aria-label="Toggle light or dark theme">Dark theme</button>
+  <div class="top-r">
+    <div class="pages" aria-label="Tutorials"><a href="training-infra.html" aria-current="page">Training</a><a href="inference-infra.html">Inference</a></div>
+    <button class="theme" id="theme" aria-label="Toggle light or dark theme">Dark theme</button>
+  </div>
 </header>
 <nav class="steps" id="steps" aria-label="Tutorial steps"></nav>
 <main>
