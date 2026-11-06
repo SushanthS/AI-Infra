@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Training Infrastructure: interactive fabric map</title>
+<style>
+:root{
+  color-scheme:light;
+  --page:#f9f9f7; --surface:#fcfcfb; --node:#ffffff; --node-2:#f0efea; --zone:#f3f2ee;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --muted:#898781;
+  --hair:#e1e0d9; --node-stroke:#b4b3aa; --border:rgba(11,11,11,.12);
+  --c-pcie:#2a78d6; --c-scaleout:#eb6834; --c-scaleup:#008300; --c-frontend:#6250d6;
+  --c-mem:#eda100; --c-storage:#1baf7a; --c-mgmt:#898781;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --page:#0d0d0d; --surface:#1a1a19; --node:#252523; --node-2:#30302d; --zone:#141413;
+  --text-primary:#f0efec; --text-secondary:#c3c2b7; --muted:#898781;
+  --hair:#2c2c2a; --node-stroke:#5b5a54; --border:rgba(255,255,255,.12);
+  --c-pcie:#3987e5; --c-scaleout:#d95926; --c-scaleup:#008300; --c-frontend:#9085e9;
+  --c-mem:#c98500; --c-storage:#199e70; --c-mgmt:#898781;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text-primary);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+button{font:inherit;color:inherit;cursor:pointer}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:22px 28px 0}
+.top h1{margin:0;font-size:21px;font-weight:650;letter-spacing:-.01em}
+.top p{margin:2px 0 0;color:var(--text-secondary)}
+.theme{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;white-space:nowrap}
+.steps{display:flex;flex-wrap:wrap;gap:8px;padding:16px 28px}
+.steps button{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:6px 14px 6px 6px}
+.steps button i{font-style:normal;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--node-2);font-size:12px;font-weight:650}
+.steps button[aria-current="true"]{background:var(--text-primary);color:var(--surface);border-color:var(--text-primary)}
+.steps button[aria-current="true"] i{background:var(--surface);color:var(--text-primary)}
+main{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:20px;padding:0 28px 20px;align-items:start}
+.stage,.panel,.card{background:var(--surface);border:1px solid var(--border);border-radius:12px}
+.stage{padding:14px 16px 16px}
+.controls{display:flex;flex-wrap:wrap;gap:10px 22px}
+.controls:empty{display:none}
+.ctl{display:flex;flex-direction:column;gap:4px}
+.ctl-l,.kick,.row-l{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--node)}
+.seg button{border:0;background:none;padding:5px 11px;font-size:13px;border-right:1px solid var(--border)}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:var(--node-2)}
+.seg button[aria-pressed="true"]{background:var(--text-primary);color:var(--surface)}
+.caption{margin:10px 0 6px;color:var(--text-secondary);font-size:13.5px;min-height:20px}
+.canvas{position:relative}
+svg#svg{display:block;width:100%;height:auto;user-select:none}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:10px}
+.row-l{margin-right:4px;min-width:66px}
+.chip{display:inline-flex;align-items:center;gap:7px;background:var(--node);border:1px solid var(--border);border-radius:999px;padding:3px 11px 3px 9px;font-size:12.5px}
+.chip:hover{border-color:var(--text-secondary)}
+.chip[aria-pressed="true"]{border-color:var(--text-primary);box-shadow:inset 0 0 0 1px var(--text-primary)}
+.chip svg{width:30px;height:10px;flex:none}
+.tip{position:absolute;pointer-events:none;background:var(--text-primary);color:var(--surface);font-size:12px;padding:5px 9px;border-radius:6px;max-width:280px;opacity:0;transition:opacity .1s;z-index:5}
+.tip b{font-weight:650}
+.panel{position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto;padding:18px 20px 20px}
+.panel h2{margin:2px 0 8px;font-size:18px;line-height:1.25;letter-spacing:-.01em}
+.panel h3{margin:16px 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.panel p{margin:0 0 9px;font-size:13.5px}
+.panel ul,.panel ol{margin:0 0 8px;padding-left:19px;font-size:13.5px}
+.panel li{margin-bottom:5px}
+.panel dl{margin:0;font-size:13px}
+.panel dt{font-weight:650;margin-top:7px}
+.panel dd{margin:0;color:var(--text-secondary)}
+.panel .verdict{border-left:3px solid var(--text-primary);padding:6px 10px;background:var(--node-2);border-radius:0 6px 6px 0;font-size:13px}
+.back{background:none;border:0;padding:0;margin-bottom:10px;color:var(--text-secondary);font-size:12.5px}
+.back:hover{color:var(--text-primary)}
+.go{margin-top:12px;background:var(--text-primary);color:var(--surface);border:0;border-radius:8px;padding:7px 13px;font-size:13px}
+.foot{padding:0 28px 26px;color:var(--muted);font-size:12px}
+/* compare */
+#compare{grid-column:1/-1;display:grid;gap:18px}
+.card{padding:18px 20px}
+.card h2{margin:0 0 2px;font-size:17px}
+.card .lede{margin:0 0 12px;color:var(--text-secondary);font-size:13.5px;max-width:95ch}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:860px}
+th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--node-stroke);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--hair);vertical-align:top}
+td:first-child{font-weight:650;white-space:nowrap}
+.bars{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:7px 14px;align-items:center;max-width:980px}
+.bars .bl{font-size:13px}
+.bars .bl small{color:var(--muted)}
+.bars .bt{display:flex;align-items:center;gap:8px}
+.bars .bar{height:14px;border-radius:0 4px 4px 0;min-width:3px}
+.bars .bv{font-size:12.5px;color:var(--text-secondary);white-space:nowrap;font-variant-numeric:tabular-nums}
+.key{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 12px;font-size:12.5px;color:var(--text-secondary)}
+.key span{display:inline-flex;align-items:center;gap:6px}
+.key i{width:11px;height:11px;border-radius:3px;display:inline-block}
+/* svg */
+.zone{fill:var(--zone);stroke:var(--hair)}
+.zl{font-size:10.5px;letter-spacing:.07em;font-weight:650;fill:var(--muted);paint-order:stroke;stroke:var(--zone);stroke-width:6px;stroke-linejoin:round}
+.note{font-size:11.5px;fill:var(--text-secondary)}
+.node{cursor:pointer;outline:none;transition:opacity .15s}
+.node .box{fill:var(--node);stroke:var(--node-stroke);stroke-width:1.25}
+.node.sw .box{fill:var(--node-2)}
+.node.cont .box{fill:var(--surface);stroke-width:1.5}
+.node.ext .box{fill:var(--zone);stroke-dasharray:5 4}
+.node.gpu .box{fill:var(--node-2);stroke-width:1.75;stroke:var(--text-secondary)}
+.node .lb{font-size:13px;font-weight:650;fill:var(--text-primary);text-anchor:middle;pointer-events:none}
+.node .sb{font-size:10.8px;fill:var(--text-secondary);text-anchor:middle;pointer-events:none}
+.node.sm .lb{font-size:11.5px;font-weight:600}
+.tone-scaleup .box{stroke:var(--c-scaleup);fill:color-mix(in srgb,var(--c-scaleup) 11%,var(--node))}
+.tone-scaleout .box{stroke:var(--c-scaleout);fill:color-mix(in srgb,var(--c-scaleout) 10%,var(--node))}
+.tone-frontend .box{stroke:var(--c-frontend);fill:color-mix(in srgb,var(--c-frontend) 10%,var(--node))}
+.tone-storage .box{stroke:var(--c-storage);fill:color-mix(in srgb,var(--c-storage) 11%,var(--node))}
+.tone-mem .box{stroke:var(--c-mem);fill:color-mix(in srgb,var(--c-mem) 16%,var(--node))}
+.tone-pcie .box{stroke:var(--c-pcie);fill:color-mix(in srgb,var(--c-pcie) 9%,var(--node))}
+.tone-mgmt .box{stroke:var(--c-mgmt);stroke-dasharray:2 3}
+.node:hover .box,.node:focus-visible .box{stroke:var(--text-primary);stroke-width:2}
+.node.sel .box{stroke:var(--text-primary);stroke-width:2.75}
+.link{transition:opacity .15s;cursor:pointer}
+.link .vis{fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.link .hit{fill:none;stroke:transparent;stroke-width:11;pointer-events:stroke}
+.lt-pcie .vis{stroke:var(--c-pcie);stroke-width:2}
+.lt-scaleup .vis{stroke:var(--c-scaleup);stroke-width:3}
+.lt-scaleout .vis{stroke:var(--c-scaleout);stroke-width:2.25;stroke-dasharray:9 5}
+.lt-frontend .vis{stroke:var(--c-frontend);stroke-width:2;stroke-dasharray:11 4 2 4}
+.lt-storage .vis{stroke:var(--c-storage);stroke-width:2.75;stroke-dasharray:.1 6}
+.lt-mem .vis{stroke:var(--c-mem);stroke-width:5;stroke-linecap:butt}
+.lt-mgmt .vis{stroke:var(--c-mgmt);stroke-width:1.4;stroke-dasharray:1.5 4}
+.link.hv .vis,.link.on .vis{opacity:1}
+.link.hv .vis{stroke-width:4}
+svg.hovering .link:not(.hv){opacity:.22}
+svg.focus .link:not(.on){opacity:.1}
+svg.focus .node:not(.on){opacity:.32}
+svg.focus .link.on .vis{stroke-width:4.5}
+.pkt{fill:var(--text-primary);stroke:var(--surface);stroke-width:2}
+@media (max-width:1100px){main{grid-template-columns:1fr}.panel{position:static;max-height:none}}
+@media (prefers-reduced-motion:reduce){.pkt{display:none}*{transition:none!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>AI Training Infrastructure</h1>
+    <p>An interactive map of the compute, memory and network fabric behind large training clusters. Click anything.</p>
+  </div>
+  <button class="theme" id="theme" aria-label="Toggle light or dark theme">Dark theme</button>
+</header>
+<nav class="steps" id="steps" aria-label="Tutorial steps"></nav>
+<main>
+  <section class="stage" id="stage">
+    <div class="controls" id="controls"></div>
+    <p class="caption" id="caption"></p>
+    <div class="canvas"><svg id="svg" role="group" aria-label="Topology diagram"></svg><div class="tip" id="tip"></div></div>
+    <div class="row" id="legend"></div>
+    <div class="row" id="concepts"></div>
+  </section>
+  <aside class="panel" id="panel" aria-live="polite"></aside>
+  <section id="compare" hidden></section>
+</main>
+<p class="foot">A simplified teaching model: box counts are reduced so the wiring stays readable. Product names and figures reflect public information as of mid-2026 and differ between cluster generations.</p>
+
+<script>
+window.addEventListener('error',e=>document.documentElement.setAttribute('data-err',e.message+' @'+e.lineno));
+const NS='http://www.w3.org/2000/svg';
+const $=(s,r=document)=>r.querySelector(s);
+const VIEWS=[['cluster','Cluster fabric'],['rack','Scale-up rack'],['node','Inside a GPU server'],['paths','Data paths & GPUDirect'],['compare','Compare the options']];
+const state={view:'cluster',fabric:'roce',scaleup:'nvlink',flow:'',path:'net-gdr',sel:null,iso:null,panel:{kind:'intro'}};
+
+/* ───────────── scale-out fabrics ───────────── */
+const FAB={
+ ib:{short:'InfiniBand',spine:'Quantum spine',leaf:'Quantum leaf',sub:'Quantum-X800 · 800G XDR',
+  tag:`InfiniBand: NVIDIA's purpose-built HPC fabric. Lossless by design, lowest latency, effectively single-vendor.`,
+  info:{k:'Scale-out fabric',t:'InfiniBand',
+   d:[`A network designed for supercomputers rather than adapted from the internet. Every link uses <b>credit-based flow control</b>: a sender transmits only when the receiver has advertised buffer space, so packets are never dropped for congestion.`,
+      `A central <b>subnet manager</b> (NVIDIA UFM) computes all routes and can re-route around hot spots (adaptive routing). RDMA is native: the "verbs" API that NCCL and MPI use was born here.`],
+   specs:[['Speeds','NDR 400G (Quantum-2, 64 ports) · XDR 800G (Quantum-X800, 144 ports)'],['Lossless method','Link-level credits, no PFC tuning'],['Routing','Central subnet manager, adaptive routing'],['Weak spot','One silicon vendor; separate ops tooling and skills from the Ethernet estate']],
+   alt:[['RoCEv2 Ethernet','same RDMA semantics on merchant Ethernet silicon'],['Ultra Ethernet','open redesign of the transport for AI'],['Scheduled fabric','Ethernet outside, cell-switched inside']],
+   dep:`Microsoft Azure's flagship NVIDIA clusters, CoreWeave, Lambda and most NVIDIA DGX SuperPOD reference builds. Meta ran one of its two 24k-GPU H100 clusters on InfiniBand. The industry trend since 2024 is toward Ethernet for new builds.`}},
+ roce:{short:'RoCEv2 Ethernet',spine:'Ethernet spine',leaf:'Ethernet leaf',sub:'Spectrum-4 / Tomahawk 5–6',
+  tag:`RoCEv2: InfiniBand's RDMA transport carried in UDP/IP over standard Ethernet. Today's hyperscale default.`,
+  info:{k:'Scale-out fabric',t:'RoCEv2 over Ethernet',
+   d:[`<b>RDMA over Converged Ethernet v2</b> wraps the InfiniBand transport in UDP/IP (port 4791), so the same RDMA verbs run on ordinary Ethernet switches from any vendor.`,
+      `Ethernet drops packets when buffers fill and RoCE handles loss badly, so the fabric is tuned to be nearly lossless: <b>PFC</b> pauses a sender hop by hop, <b>ECN</b> marks packets early, and <b>DCQCN</b> slows the NIC down. A second problem is load balancing: training produces a few huge flows, which ECMP hashing spreads poorly. Fixes include adaptive routing (NVIDIA Spectrum-X), flowlet switching, and pinning flows to rails.`],
+   specs:[['Switch silicon','NVIDIA Spectrum-4 (51.2T) · Broadcom Tomahawk 5 (51.2T) and Tomahawk 6 (102.4T) · Cisco Silicon One G200 · Marvell Teralynx 10'],['Systems','Arista 7060X6 / 7800R, Cisco Nexus and 8000, NVIDIA SN5600, white boxes running SONiC or FBOSS'],['Port speeds','400G and 800G today, 1.6T arriving'],['Lossless method','PFC + ECN with DCQCN congestion control']],
+   alt:[['InfiniBand','lossless by construction, single vendor'],['Ultra Ethernet','drops the PFC dependence and sprays packets'],['Scheduled fabric','moves load balancing into the switch']],
+   dep:`Meta (Arista 7800 and Minipack switches), Oracle OCI superclusters, xAI Colossus (NVIDIA Spectrum-X), and a growing share of Microsoft and neocloud builds.`}},
+ uec:{short:'Ultra Ethernet',spine:'UEC spine',leaf:'UEC leaf',sub:'Tomahawk 6 / UEC 1.0',
+  tag:`Ultra Ethernet: an open transport (UET) built for AI, with per-packet spraying and no dependence on PFC.`,
+  info:{k:'Scale-out fabric',t:'Ultra Ethernet (UEC)',
+   d:[`The Ultra Ethernet Consortium (AMD, Arista, Broadcom, Cisco, HPE, Intel, Meta, Microsoft and later NVIDIA, among others) published <b>UEC 1.0 in June 2025</b>. It keeps Ethernet wires and switches but replaces RoCE with a new transport, <b>UET</b>.`,
+      `UET sprays the packets of one message across every available path and lets them arrive out of order, so load balancing no longer depends on flow hashing. Connections are ephemeral (no per-peer setup), congestion control runs at both sender and receiver, and switches may <b>trim</b> a packet to its header instead of dropping it so the receiver can ask for a fast resend. Link-level retry (LLR) and credit-based flow control (CBFC) are optional link features.`],
+   specs:[['Spec','UEC 1.0, June 2025'],['NICs','AMD Pensando Pollara 400 (first UEC-ready NIC) · Broadcom Thor Ultra 800G'],['Switches','Any Ethernet switch; trimming and LLR/CBFC need newer silicon such as Tomahawk 6 or Jericho 4'],['API','libfabric']],
+   alt:[['RoCEv2','what it is designed to replace'],['NVIDIA Spectrum-X','vendor-specific adaptive routing that solves the same problem'],['AWS SRD, Google Falcon','in-house transports built on the same ideas']],
+   dep:`Early deployments from 2025–26, for example Oracle with AMD Pollara NICs. Expect it first in AMD and custom-accelerator clusters.`}},
+ sched:{short:'Scheduled fabric',spine:'Fabric switch',leaf:'Leaf (VOQ)',sub:'Jericho 3-AI / 4 + Ramon',
+  tag:`Scheduled fabric: Ethernet at the edges, a credit-scheduled cell fabric inside. Congestion is prevented, not reacted to.`,
+  info:{k:'Scale-out fabric',t:'Scheduled (cell-based) fabric',
+   d:[`The whole leaf-spine system behaves like one giant chassis switch. A packet arriving at a leaf waits in a <b>virtual output queue</b> until the destination leaf grants a credit. It is then chopped into cells that are <b>sprayed evenly over every spine</b> and reassembled on the far side.`,
+      `Because traffic is admitted only when the egress port can take it, load balance is close to perfect and nothing is dropped inside the fabric. Endpoints still speak plain RoCE or UET. The price is more expensive, more power-hungry silicon with deep buffers.`],
+   specs:[['Silicon','Broadcom Jericho3-AI and Jericho 4 leaves with Ramon fabric elements'],['Systems','Arista 7800R4 and 7700R4 Distributed Etherlink Switch, Cisco 8000'],['Open design','Meta DSF (Disaggregated Scheduled Fabric)']],
+   alt:[['Endpoint-scheduled fabrics','UEC and Spectrum-X keep switches simple and put the intelligence in the NIC']],
+   dep:`Meta's DSF for large GPU clusters; offered by Arista and Cisco for very large Ethernet AI fabrics.`}}
+};
+
+/* ───────────── scale-up technologies ───────────── */
+const SU={
+ nvlink:{short:'NVLink',sw:'NVLink switch tray',swl:'NVLink Switch',swsub:'2 switch chips',xpu:'GPU',switched:true,
+  tag:`NVLink: NVIDIA's proprietary GPU-to-GPU fabric. Every GPU reaches every other GPU in the rack through one switch hop.`,
+  info:{k:'Scale-up technology',t:'NVLink (NVIDIA)',
+   d:[`A dedicated high-speed link that leaves the GPU directly, bypassing PCIe and the host. In an NVL72 rack, 72 GPUs connect through 9 switch trays over a <b>passive copper backplane</b> of roughly 5,000 cables. Software sees one very large multi-GPU machine.`,
+      `Links are lossless (credit-based) with memory-style semantics, which is why collectives inside a rack run far faster than across the scale-out network.`],
+   specs:[['NVLink 4 (H100)','900 GB/s per GPU, both directions combined'],['NVLink 5 (Blackwell)','1.8 TB/s per GPU over 18 links; 130 TB/s across an NVL72 rack'],['NVLink 6 (Rubin)','3.6 TB/s per GPU'],['Domain size','8 GPUs on an HGX board, 72 GPU packages per rack, 576 on the roadmap'],['Medium','Copper inside the rack; optics only when a domain spans racks']],
+   alt:[['UALink','open memory-semantic alternative'],['SUE / ESUN','scale-up over Ethernet'],['Google ICI, AWS NeuronLink','in-house equivalents']],
+   dep:`Every GB200 and GB300 rack: Microsoft, Meta, Oracle, AWS, Google Cloud, CoreWeave, xAI.`}},
+ fusion:{short:'NVLink Fusion',sw:'NVLink switch tray',swl:'NVLink Switch',swsub:'NVIDIA silicon',xpu:'XPU',switched:true,
+  tag:`NVLink Fusion: NVIDIA licenses NVLink so custom accelerators and non-NVIDIA CPUs can plug into its rack fabric.`,
+  info:{k:'Scale-up technology',t:'NVLink Fusion',
+   d:[`Announced in May 2025. NVIDIA opened the NVLink port, not the switch: chip designers get NVLink IP or a chiplet so a <b>custom XPU</b> can sit in an NVLink rack, and CPU vendors can attach their processors to NVIDIA GPUs.`,
+      `It is NVIDIA's answer to UALink and Ethernet scale-up. A hyperscaler can keep the proven rack, backplane and switch while swapping in its own silicon, but the switch chips and the roadmap stay with NVIDIA.`],
+   specs:[['Silicon partners','MediaTek, Marvell, Alchip, Astera Labs, Synopsys, Cadence'],['CPU partners','Qualcomm, Fujitsu, Intel, Arm'],['Rack','Same NVLink switch trays and copper spine as NVL72']],
+   alt:[['UALink','fully open, multi-vendor switches'],['SUE / ESUN','reuse Ethernet switch silicon']],
+   dep:`AWS has said its Trainium4 generation will adopt NVLink Fusion. No volume deployments yet.`}},
+ ualink:{short:'UALink',sw:'UALink switch tray',swl:'UALink switch',swsub:'multi-vendor',xpu:'XPU',switched:true,
+  tag:`UALink: an open, memory-semantic accelerator link and switch standard, backed by nearly everyone except NVIDIA.`,
+  info:{k:'Scale-up technology',t:'UALink (Ultra Accelerator Link)',
+   d:[`An open standard for exactly the job NVLink does. The protocol layer descends from AMD's Infinity Fabric and gives accelerators <b>read, write and atomic operations on each other's memory</b>. The physical layer borrows Ethernet's 200G-per-lane SerDes so existing cables and retimers work.`,
+      `Fixed-size flits, link-level retry and credit flow control keep it lossless with switch latency well under a microsecond.`],
+   specs:[['Spec','UALink 1.0, April 2025'],['Speed','200G per lane; ports of 1, 2 or 4 lanes (up to 800G)'],['Scale','Up to 1,024 accelerators in one pod'],['Backers','AMD, Intel, AWS, Google, Meta, Microsoft, Cisco, HPE, Astera Labs, Apple, Alibaba'],['Switch silicon','Astera Labs, Marvell and others; first parts 2026']],
+   alt:[['NVLink / NVLink Fusion','incumbent, proprietary'],['SUE / ESUN','Ethernet framing instead of a new protocol']],
+   dep:`First systems arrive with AMD's Helios rack (Instinct MI450, 2026), whose first generation tunnels UALink over Ethernet switch silicon. Oracle and others have announced Helios clusters.`}},
+ sue:{short:'SUE',sw:'Ethernet switch tray',swl:'Ethernet switch',swsub:'Tomahawk Ultra / 6',xpu:'XPU',switched:true,
+  tag:`SUE: Broadcom's Scale-Up Ethernet. Plain Ethernet switches made lossless and low-latency enough for XPU-to-XPU traffic.`,
+  info:{k:'Scale-up technology',t:'SUE (Scale-Up Ethernet, Broadcom)',
+   d:[`Broadcom's argument: do not invent another link, use Ethernet. SUE is a thin specification that an XPU implements to send memory-style transactions as Ethernet frames through a single tier of standard switches.`,
+      `Losslessness comes from <b>link-layer retry (LLR)</b> and <b>credit-based flow control (CBFC)</b>, both taken from Ultra Ethernet. A compressed AI forwarding header cuts per-packet overhead. One switch family and one set of optics and cables then serves both scale-up and scale-out.`],
+   specs:[['Spec','SUE framework, published 2025'],['Switch silicon','Tomahawk Ultra (51.2T, about 250 ns latency) · Tomahawk 6 (102.4T, 512×200G)'],['Scale','Hundreds to 1,000+ XPUs in a single switch tier'],['Transport','SUE-T, contributed to OCP']],
+   alt:[['UALink','new protocol on the same 200G SerDes'],['NVLink','proprietary, mature'],['ESUN','the open OCP effort SUE feeds into']],
+   dep:`Aimed at hyperscalers' custom XPU racks. Ethernet-based scale-up already exists in Intel Gaudi and several in-house accelerators.`}},
+ esun:{short:'ESUN',sw:'Ethernet switch tray',swl:'Ethernet switch',swsub:'ESUN-compliant',xpu:'XPU',switched:true,
+  tag:`ESUN: the OCP workstream standardising Ethernet for scale-up, so Ethernet-based approaches interoperate.`,
+  info:{k:'Scale-up technology',t:'ESUN (Ethernet for Scale-Up Networking)',
+   d:[`ESUN is a standards effort, not a product. Launched at the OCP Global Summit in October 2025, it defines how Ethernet frames, headers and lossless link behaviour should work for scale-up so that XPUs and switches from different vendors interoperate.`,
+      `It deliberately covers the <b>network side</b> (L2/L3 framing and switching, error recovery, flow control) and leaves the endpoint transport to others such as SUE-T. It coordinates with the Ultra Ethernet Consortium and IEEE 802.3.`],
+   specs:[['Launched','October 2025, OCP Networking project'],['Founding members','AMD, Arista, Arm, Broadcom, Cisco, HPE, Marvell, Meta, Microsoft, NVIDIA, OpenAI, Oracle'],['Status','Specification work in progress']],
+   alt:[['UALink','a separate consortium with its own protocol'],['NVLink Fusion','NVIDIA-controlled']],
+   dep:`None yet. Notable because NVIDIA and the largest buyers joined on day one, which makes it the likely convergence point for Ethernet scale-up.`}},
+ ici:{short:'TPU ICI torus',sw:'',swl:'',swsub:'',xpu:'TPU',switched:false,
+  tag:`Google TPU ICI: no scale-up switches at all. Each chip links directly to its neighbours in a 3D torus.`,
+  info:{k:'Scale-up technology',t:'ICI torus (Google TPU)',
+   d:[`Google's TPUs use an <b>Inter-Chip Interconnect</b>: each chip has links to its six neighbours in a 3D torus (drawn here as one 2D slice, with the wrap-around links shown). There is no packet switch in the path, which removes a whole layer of cost and power.`,
+      `The trade-off is hop count: distant chips talk through intermediate chips, so job placement and collective algorithms are shaped to the torus. <b>Optical circuit switches</b> between racks let Google re-wire the torus per job and route around failed machines.`],
+   specs:[['TPU v4','4,096 chips per pod in a 3D torus'],['Ironwood (TPU v7)','Up to 9,216 chips per pod'],['Reconfiguration','Palomar optical circuit switches (MEMS mirrors)'],['Outside the pod','Jupiter datacenter network']],
+   alt:[['Switched single-hop fabrics','NVLink, UALink, SUE: one hop to anyone, at the cost of switch silicon'],['AWS NeuronLink','Trainium chip-to-chip links']],
+   dep:`Google's own TPU pods, also sold through Google Cloud.`}}
+};
+
+/* ───────────── component info ───────────── */
+const INFO={
+ gpu:{k:'Compute',t:'GPU / accelerator (XPU)',
+  d:[`Does the arithmetic of training: forward pass, back-propagation, optimizer step. Everything else in the cluster exists to keep it fed with data and in step with its peers.`,
+     `Each accelerator has three kinds of connection: a <b>PCIe</b> link to the host, <b>scale-up</b> links to neighbouring accelerators, and <b>HBM</b> memory on its own package.`],
+  specs:[['NVIDIA H100 (2022)','80 GB HBM3 · NVLink 4 · PCIe Gen5 · about 700 W'],['NVIDIA B200 / GB200 (2024–25)','about 180 GB HBM3e · NVLink 5'],['NVIDIA Rubin (2026)','288 GB HBM4 · NVLink 6']],
+  alt:[['AMD Instinct','MI300X and MI350 (Infinity Fabric), MI450 (UALink)'],['Google TPU','Ironwood; ICI torus'],['AWS Trainium','Trainium 2 and 3; NeuronLink'],['Meta MTIA, Microsoft Maia','in-house accelerators'],['Intel Gaudi 3','Ethernet RoCE ports built into the chip']]},
+ hbm:{k:'Memory',t:'HBM (high-bandwidth memory)',
+  d:[`Stacks of DRAM dies mounted beside the GPU die on the same package and wired with thousands of through-silicon vias. It holds the model weights, activations, gradients and optimizer state.`,
+     `HBM capacity limits model and batch size per GPU; HBM bandwidth (several terabytes per second) limits how fast the GPU can use it. It is also the scarcest component in the supply chain.`],
+  specs:[['Generations','HBM3 (H100) → HBM3e (H200, Blackwell) → HBM4 (Rubin)'],['Suppliers','SK hynix, Samsung, Micron'],['Bandwidth','For example 4.8 TB/s on an H200']],
+  alt:[['System DDR5','much larger and cheaper, about 10× slower, on the far side of PCIe'],['CXL memory','expansion and pooling for the host, not a substitute for HBM']]},
+ cpu:{k:'Host',t:'Host CPU',
+  d:[`Runs the operating system, the training script, data loading and preprocessing, and launches work on the GPUs. It is also the <b>PCIe root complex</b>: every GPU, NIC and SSD hangs off it.`,
+     `A well-built training node keeps the CPU <i>out</i> of the bulk data path. GPUDirect exists so that tensors and datasets do not have to pass through it.`],
+  specs:[['x86 hosts','Intel Xeon or AMD EPYC, two sockets in an 8-GPU server'],['Arm hosts','NVIDIA Grace (GB200), Vera (Rubin); AWS Graviton; Google Axion'],['Typical ratio','1 CPU per 2–4 GPUs']]},
+ ddr:{k:'Memory',t:'System memory (DDR5)',
+  d:[`Host RAM for the OS, data-loader workers and staging buffers. A common rule of thumb is at least twice the total GPU memory, so 1–2 TB in an 8-GPU server.`,
+     `Buffers that a device will read or write directly must be <b>pinned</b> (page-locked) so the kernel cannot move them during DMA.`],
+  specs:[['Typical','DDR5 RDIMMs, 8–12 channels per socket'],['Grace hosts','LPDDR5X soldered beside the CPU']],
+  alt:[['CXL memory expansion','adds capacity over PCIe lanes at higher latency'],['HBM','the GPU-side memory that actually limits training']]},
+ pciesw:{k:'Host bus',t:'PCIe switch',
+  d:[`A CPU has too few PCIe lanes for 8 GPUs, 8 NICs and a shelf of SSDs, so switches fan them out. Retimers clean up the signal along the way.`,
+     `Placement matters. When a GPU and its NIC sit under the <b>same switch</b>, data can pass between them peer to peer without climbing to the CPU. That is what makes GPUDirect RDMA fast.`],
+  specs:[['Gen5','32 GT/s per lane; x16 carries about 63 GB/s each way'],['Gen6','64 GT/s per lane with PAM4; x16 carries about 121 GB/s'],['Vendors','Broadcom PEX, Astera Labs Scorpio and Aries, Microchip Switchtec']],
+  alt:[['CXL','memory semantics on the same wires'],['NVLink, UALink','bypass PCIe entirely for GPU-to-GPU traffic']]},
+ nvswitch:{k:'Scale-up',t:'NVLink switch chip (on the baseboard)',
+  d:[`In an 8-GPU HGX server the NVLink switch chips are soldered to the GPU baseboard. Each GPU spreads its NVLink lanes across all of them, so any GPU reaches any other in one hop at full speed.`,
+     `In rack-scale systems (step 2) the same chips move out of the server into dedicated switch trays, and the scale-up domain grows from 8 GPUs to 72.`],
+  specs:[['HGX H100','4 NVSwitch chips, NVLink 4'],['HGX B200','2 NVLink 5 switch chips'],['GB200 NVL72','18 chips in 9 switch trays']],
+  go:['rack','See the rack-scale version']},
+ suswitch:s=>({k:'Scale-up',t:SU[s.scaleup].switched?SU[s.scaleup].swl+' (scale-up switch)':'No scale-up switch',
+  d:[SU[s.scaleup].switched?`Connects every accelerator in the rack in a single hop. With enough switch chips the fabric is non-blocking: every accelerator can send at full rate at once.`:`A torus has no switch. Each chip forwards traffic for its neighbours.`,
+     `Currently showing <b>${SU[s.scaleup].short}</b>. Use the selector above the diagram to compare the alternatives.`],
+  go:['rack','Open the scale-up rack']}),
+ nic:{k:'Scale-out',t:'Backend NIC (SuperNIC)',
+  d:[`The GPU's door to the rest of the cluster. Typical designs give <b>one NIC port per GPU</b> so network bandwidth scales with compute. The NIC implements RDMA in hardware: it segments, retransmits and paces traffic without the CPU.`,
+     `With GPUDirect RDMA it reads and writes GPU memory directly over PCIe.`],
+  specs:[['NVIDIA','ConnectX-7 (400G, InfiniBand or Ethernet) · ConnectX-8 SuperNIC (800G, PCIe Gen6) · BlueField-3 SuperNIC'],['Per 8-GPU server','8 × 400G is typical for H100 systems']],
+  alt:[['Broadcom','Thor 2 (400G), Thor Ultra (800G, Ultra Ethernet)'],['AMD','Pensando Pollara 400 (Ultra Ethernet)'],['AWS','Nitro cards with Elastic Fabric Adapter (SRD)'],['Google','Intel IPU with the Falcon transport'],['Intel Gaudi','NIC ports integrated in the accelerator']]},
+ dpu:{k:'Frontend',t:'DPU / IPU (frontend NIC)',
+  d:[`A NIC with its own CPU cores that runs the cloud provider's infrastructure <i>off</i> the host: virtual networking, tenant isolation, encryption, and storage presented as local NVMe devices. The host and its tenant never see the provider's control plane.`,
+     `It connects to the frontend network, which carries datasets in, checkpoints out, and user and scheduler traffic.`],
+  specs:[['NVIDIA','BlueField-3'],['AWS','Nitro'],['Microsoft','Azure Boost'],['Google','Titanium, built on the Intel IPU E2100'],['AMD','Pensando, used by Oracle and Azure']]},
+ nvme:{k:'Storage',t:'Local NVMe SSD',
+  d:[`Fast local flash attached over PCIe. Used as a cache for the hot part of the dataset, as scratch space, and as a quick landing zone for checkpoints before they are copied to shared storage.`,
+     `Placed under the same PCIe switch as a GPU, an SSD can deliver blocks straight into GPU memory with GPUDirect Storage.`],
+  specs:[['Form factors','U.2, E1.S, E3.S'],['Interface','PCIe Gen4 or Gen5 x4, roughly 7–14 GB/s per drive']]},
+ bmc:{k:'Management',t:'BMC and out-of-band management',
+  d:[`A small independent computer on every server and switch. It powers the machine on and off, reads temperatures and fan or pump speeds, flashes firmware and gives console access even when the host is down.`,
+     `BMCs sit on a separate, slow, isolated network so the cluster can always be recovered.`],
+  specs:[['Hardware','ASPEED AST2600-class controllers'],['Software','OpenBMC, Redfish, IPMI'],['Network','1GbE, physically separate']]},
+ leaf:s=>({k:'Scale-out',t:FAB[s.fabric].leaf+' switch',
+  d:[`The first switch a GPU's NIC reaches. In a <b>rail-optimised</b> design, NIC <i>n</i> of every server connects to leaf <i>n</i>, so GPUs with the same index in different servers are one switch hop apart.`,
+     `Half of a leaf's ports face down to NICs and half face up to spines, which keeps the fabric non-blocking (1:1 subscription).`,
+     `Currently showing <b>${FAB[s.fabric].short}</b>: ${FAB[s.fabric].sub}.`],
+  specs:FAB[s.fabric].info.specs}),
+ spine:s=>({k:'Scale-out',t:FAB[s.fabric].spine+' switch',
+  d:[`Spines connect leaves to each other. Traffic that must change rails or reach a distant pod goes leaf → spine → leaf. Every leaf connects to every spine, so there are as many equal paths as spines.`,
+     `Very large clusters add a third tier of super-spines. Leaf-to-spine links are optical: pluggable transceivers today, co-packaged optics in the newest switches.`,
+     `Currently showing <b>${FAB[s.fabric].short}</b>.`],
+  specs:FAB[s.fabric].info.specs}),
+ rackpod:s=>({k:'Compute',t:'Rack / pod: one scale-up domain',
+  d:[`A rack of GPU servers plus the scale-up fabric that binds their GPUs together. Inside the green boundary GPUs talk over <b>${SU[s.scaleup].short}</b>; to reach any other rack they go through their NICs to the backend network.`,
+     `The four ports on top are the rails to the backend leaves; the ports underneath go to the frontend network. A grey line reaches every BMC.`],
+  specs:[['8-GPU servers','scale-up domain is one server (8 GPUs)'],['Rack-scale systems','scale-up domain is the rack (72 GPUs in a GB200 NVL72)'],['Power','40–60 kW air-cooled racks; 120 kW and up liquid-cooled']],
+  go:['rack','Open step 2 · scale-up rack']}),
+ gpunode:{k:'Compute',t:'GPU server (node)',
+  d:[`One chassis with CPUs, system memory, 4–8 GPUs, a NIC per GPU, a DPU and local SSDs. Step 3 opens the lid.`],
+  go:['node','Open step 3 · inside a GPU server']},
+ fesw:{k:'Frontend',t:'Frontend switches',
+  d:[`Ordinary datacenter Ethernet connecting GPU servers to storage, CPU-only nodes, the control plane and the outside world. Traffic here is "north-south": datasets in, checkpoints and logs out, users and schedulers talking to nodes.`,
+     `It needs far less bandwidth per GPU than the backend, so it is oversubscribed and built from standard cloud network designs, with tenant isolation enforced in the DPUs.`],
+  specs:[['Speeds','100–400G per server'],['Overlay','VXLAN/EVPN or the provider VPC'],['Examples','Google Jupiter, Meta F16 fabric, Arista, Cisco and NVIDIA Spectrum leaf-spine']]},
+ storage:{k:'Storage',t:'Storage cluster',
+  d:[`Training reads the dataset over and over and periodically writes checkpoints that can be terabytes each. Storage must feed every GPU without stalling it and absorb checkpoint bursts quickly, because GPUs wait while a checkpoint is written.`,
+     `Most sites tier it: an all-flash parallel file system close to the GPUs and a large object store behind it.`],
+  specs:[['Parallel file systems','Lustre (DDN EXAScaler), IBM Storage Scale, WEKA, VAST Data, BeeGFS'],['Hyperscaler stores','Meta Tectonic, Google Colossus, Amazon S3 with FSx for Lustre, Azure Blob'],['Protocols','NVMe over Fabrics, NFS over RDMA, native parallel clients, S3'],['GPUDirect Storage','supported by the main parallel file systems']]},
+ cpunodes:{k:'Frontend',t:'CPU nodes (data preparation)',
+  d:[`CPU-only servers that decode, tokenise, shuffle and augment data before it reaches the GPUs. When preprocessing is heavy (video, images) it is moved off the GPU servers so their host CPUs do not become the bottleneck.`]},
+ ctrl:{k:'Frontend',t:'Control plane',
+  d:[`Schedulers place jobs on GPUs (Slurm, Kubernetes, or in-house systems such as Google Borg and Meta MAST). Alongside them: login nodes, the network's own controllers (for example the InfiniBand subnet manager), telemetry and health checking.`,
+     `At this scale something is always broken, so failure detection and automatic job restart from checkpoints are part of the design.`]},
+ wan:{k:'Frontend',t:'WAN, DCI and scale-across',
+  d:[`Links to users, to other regions, and increasingly to other AI datacenters. Joining several sites into one training cluster is called <b>scale-across</b>; it uses long-reach coherent optics and fabrics tuned for distance (for example NVIDIA Spectrum-XGS).`]},
+ oobsw:{k:'Management',t:'Out-of-band management network',
+  d:[`A separate 1GbE network reaching the BMC of every server, switch, power shelf and cooling unit. It carries no training traffic; it exists so operators can always reach a machine that has failed.`]},
+ tray:s=>({k:'Compute',t:'Compute tray',
+  d:[`A 1U liquid-cooled sled. In a GB200 NVL72 each tray holds 2 Grace CPUs and 4 Blackwell GPUs, plus NICs and DPUs at the front. Its scale-up links leave through blind-mate connectors at the back into the rack's copper spine, so the tray can slide out for service.`,
+     `Showing <b>${SU[s.scaleup].short}</b> trays with ${SU[s.scaleup].xpu}s.`],
+  go:['node','Open step 3 · inside a GPU server']}),
+ rack:{k:'Compute',t:'Rack-scale system',
+  d:[`The rack, not the server, is now the unit of design. Compute trays sit above and below a block of scale-up switch trays so that every copper run is short enough for passive cable.`,
+     `An NVL72 has 18 compute trays (10 above, 8 below), 9 switch trays, power shelves, and liquid-cooling manifolds down the sides.`],
+  specs:[['Power','about 120–140 kW per rack today; 600 kW designs announced'],['Cooling','direct liquid cooling to cold plates, fed by coolant distribution units'],['Equivalents','AMD Helios, Meta Catalina, Google TPU racks, AWS Trainium racks']]},
+ backplane:s=>({k:'Scale-up',t:'Copper spine (cable cartridge)',
+  d:[`Thousands of passive twinax cables bundled into cartridges behind the trays. They carry every scale-up link between compute trays and switch trays.`,
+     `Copper is chosen because it needs no power, adds no latency and rarely fails, but at these speeds it only reaches a metre or two. That reach is what limits a scale-up domain to roughly one rack, and it is why the next step for scale-up is co-packaged optics.`],
+  specs:[['NVL72','about 5,000 cables, around two miles of copper'],['Showing',SU[s.scaleup].short]]}),
+ power:{k:'Facilities',t:'Power and cooling',
+  d:[`Power shelves convert facility AC to a DC busbar that every tray clips onto. At 120 kW and beyond, air cannot remove the heat, so coolant is piped to cold plates on each GPU and CPU.`,
+     `Power, not floor space, is now the limit on cluster size: sites are described in megawatts or gigawatts.`],
+  specs:[['Busbar','48–54 V DC today; 800 V DC distribution planned for higher densities'],['Cooling','direct-to-chip liquid, coolant distribution units, facility water loop']]},
+ sunic:{k:'Scale-out',t:'SuperNIC (rack exit)',
+  d:[`Each accelerator still has a NIC for traffic that leaves the scale-up domain. Inside the rack the scale-up fabric is used; between racks, RDMA over the backend network.`],
+  go:['cluster','Back to the cluster view']},
+ tpuhost:{k:'Host',t:'TPU host servers',
+  d:[`CPU hosts drive the TPUs over PCIe and connect them to Google's Jupiter datacenter network for data loading and traffic that leaves the pod. Chip-to-chip training traffic stays on the ICI torus.`]}
+};
+INFO.extleaf=INFO.leaf; INFO.extfe=INFO.fesw; INFO.extoob=INFO.oobsw; INFO.extout=INFO.leaf;
+
+/* ───────────── link info ───────────── */
+const LINKINFO={
+ pcie:{k:'Link type',t:'PCIe (PCI Express)',
+  d:[`The host's universal device bus. It is a <b>tree</b>: the CPU is the root, switches fan out, devices are leaves. The CPU configures devices through it, and devices move data by DMA (direct memory access).`,
+     `It is the right link for control and for feeding one GPU. It is the wrong link for GPU-to-GPU traffic: one x16 slot carries about a fifteenth of what a Blackwell GPU's NVLink ports do.`],
+  specs:[['Gen5 x16','32 GT/s per lane, about 63 GB/s each way'],['Gen6 x16','64 GT/s per lane, about 121 GB/s each way'],['Used for','CPU to GPU, GPU to NIC, NVMe SSDs, DPU']],
+  alt:[['CXL','memory expansion and pooling on PCIe wires'],['NVLink, UALink, SUE','dedicated accelerator links']]},
+ scaleup:s=>Object.assign({},SU[s.scaleup].info,{k:'Link type · scale-up'}),
+ scaleout:s=>Object.assign({},FAB[s.fabric].info,{k:'Link type · scale-out backend'}),
+ frontend:{k:'Link type',t:'Frontend Ethernet',
+  d:[`Standard datacenter Ethernet for everything that is not GPU-to-GPU traffic: storage access, job control, users, telemetry. It terminates on the DPU in each server.`],
+  specs:[['Speeds','100–400G per server'],['Isolation','overlays and encryption enforced in the DPU']]},
+ storage:{k:'Link type',t:'Storage I/O',
+  d:[`Dataset reads and checkpoint writes. Usually carried over the frontend network or a dedicated storage fabric using RDMA-capable protocols so that data can land directly in GPU memory.`],
+  specs:[['Protocols','NVMe over Fabrics (RDMA or TCP), NFS over RDMA, Lustre LNet, vendor clients'],['Design target','enough read throughput that data loading never stalls a training step']]},
+ mem:{k:'Link type',t:'Memory bus',
+  d:[`Parallel DDR5 channels between a CPU and its DIMMs, or the in-package wiring between a GPU die and its HBM stacks. These are the shortest, widest links in the system and they are not networked: memory belongs to one processor.`],
+  alt:[['CXL','lets memory sit on PCIe lanes and be shared or pooled between hosts']]},
+ mgmt:{k:'Link type',t:'Out-of-band management',
+  d:[`Low-speed Ethernet to every BMC. Isolated from the data networks so the cluster can be repaired when they are down.`]}
+};
+
+/* ───────────── concepts ───────────── */
+const CONCEPTS={
+ three:{k:'Concept',t:'Scale-up, scale-out, scale-across',
+  d:[`<b>Scale-up</b> makes one bigger computer: tens to hundreds of accelerators in a rack share memory-like links, with sub-microsecond latency over copper. NVLink, UALink, SUE.`,
+     `<b>Scale-out</b> joins many of those computers: tens of thousands to a million endpoints, RDMA messages, optical links, leaf-spine switches. InfiniBand, RoCE, Ultra Ethernet.`,
+     `<b>Scale-across</b> joins whole datacenters over tens of kilometres of fibre.`,
+     `Frameworks map onto this: tensor-parallel and expert-parallel groups, which exchange the most data, are placed inside a scale-up domain; data-parallel replicas communicate across scale-out.`]},
+ clos:{k:'Concept',t:'Fat-tree (Clos) and rail-optimised wiring',
+  d:[`Backend networks are <b>folded Clos</b> fabrics: every leaf connects to every spine, and the up-facing bandwidth equals the down-facing bandwidth, so the fabric never has to refuse traffic (non-blocking).`,
+     `With 64-port switches, two tiers reach 2,048 NIC ports and three tiers reach 65,536. Bigger radix (Tomahawk 6 offers 512 × 200G) flattens the network and removes optics.`,
+     `<b>Rail-optimised</b> wiring connects GPU <i>n</i> of every server to leaf <i>n</i>. Collectives are arranged so most traffic stays on its own rail and crosses a single switch.`],
+  alt:[['Dragonfly, torus','fewer switches and cables, less uniform performance; common in HPC and in Google TPU pods'],['Multi-plane fabrics','several independent Clos planes, one per NIC port']]},
+ media:{k:'Concept',t:'Cables and optics',
+  d:[`What a link is made of depends on distance:`],
+  specs:[['DAC (passive copper)','up to about 2 m at 800G. No power, most reliable. Used inside racks and for NVLink spines.'],['AEC (active electrical cable)','retimers in the plugs extend copper to 5–7 m. Common from server to top-of-rack.'],['AOC and pluggable optics','QSFP-DD and OSFP modules over fibre, from 50 m to 2 km. Used for leaf-to-spine links. A large share of network power and failures.'],['LPO (linear pluggable optics)','removes the module DSP to save power.'],['CPO (co-packaged optics)','the optical engine sits beside the switch chip: NVIDIA Quantum-X and Spectrum-X Photonics, Broadcom Bailly. Less power, fewer failure points.'],['Optical circuit switches','mirrors that re-patch fibres; used by Google']]},
+ rdma:{k:'Concept',t:'RDMA and kernel bypass',
+  d:[`With <b>Remote Direct Memory Access</b>, an application hands the NIC a pointer to a buffer and the NIC places bytes directly into a buffer on the remote machine. There are no system calls, no kernel copies and no remote CPU involvement on the data path.`,
+     `NCCL, the library under PyTorch's distributed training, uses RDMA verbs for collectives such as all-reduce. Everything in the backend network exists to make these transfers fast and predictable.`],
+  alt:[['InfiniBand','native RDMA'],['RoCEv2','RDMA over UDP/IP Ethernet'],['UET','Ultra Ethernet transport, RDMA-like semantics through libfabric'],['AWS SRD (EFA), Google Falcon','cloud-built reliable transports'],['TCP','works everywhere; too much CPU and latency for the backend']]},
+ cc:{k:'Concept',t:'Congestion control and load balancing',
+  d:[`AI traffic is unusually hard on networks: a handful of enormous, synchronised flows that all start and stop together, with little variety for hash-based balancing to work with.`],
+  specs:[['PFC','priority flow control: a switch tells its neighbour to pause. Prevents loss but can spread congestion.'],['ECN + DCQCN','switches mark packets as queues build; the NIC backs off'],['Credit-based flow control','InfiniBand, UALink, SUE: send only against advertised buffer'],['Adaptive routing','the switch picks the least-loaded path per packet or flowlet (InfiniBand, Spectrum-X)'],['Packet spraying','every packet takes a different path; the receiver tolerates reordering (UET, SRD)'],['Scheduled fabric','the fabric grants credits end to end and sprays cells']]},
+ gpudirect:{k:'Concept',t:'The GPUDirect family',
+  d:[`GPUDirect is NVIDIA's name for letting other devices read and write GPU memory <b>without a detour through the CPU and system RAM</b>.`],
+  specs:[['GPUDirect RDMA','the NIC performs DMA straight into GPU memory. The driver exposes GPU pages to the RDMA stack (nvidia-peermem or Linux dma-buf). Works best when NIC and GPU share a PCIe switch.'],['GPUDirect Storage','the cuFile API moves data between NVMe or remote storage and GPU memory, skipping the page cache and bounce buffers'],['GPUDirect P2P','GPU-to-GPU copies over PCIe; superseded by NVLink where present']],
+  alt:[['Linux dma-buf and device-memory TCP','vendor-neutral kernel mechanisms for the same idea, used by AMD and by hyperscalers for custom accelerators'],['Integrated NICs','Intel Gaudi puts Ethernet ports on the accelerator, so there is no PCIe hop']],
+  go:['paths','Watch the paths in step 4']},
+ dpuc:{k:'Concept',t:'Multi-tenancy and DPU offload',
+  d:[`Clouds rent the same hardware to many customers. Rather than trust a hypervisor on the host, they move networking, storage virtualisation and security into the DPU. The tenant gets bare-metal performance and the provider keeps control.`,
+     `On the backend, isolation uses InfiniBand partition keys or Ethernet overlays enforced in the SuperNIC.`],
+  specs:[['AWS','Nitro'],['Microsoft','Azure Boost'],['Google','Titanium'],['NVIDIA ecosystem','BlueField-3 with DOCA']]},
+ cxl:{k:'Concept',t:'CXL (Compute Express Link)',
+  d:[`Memory semantics on PCIe wiring. It lets a host add DRAM beyond its DIMM slots or share a memory pool between hosts.`,
+     `It matters more for inference and data-preparation hosts than for the GPU-to-GPU path, where its PCIe-class bandwidth is too low. It appears in "competing technology" lists because, like UALink, it is an open memory-semantic interconnect.`]}
+};
+
+/* ───────────── flows and data paths ───────────── */
+const FLOWS={
+ rail:{label:'Same-rail sync',seq:['rack1','leaf2','rack3'],k:'Traced flow',t:'Gradient sync on one rail',
+  d:[`GPU 2 in rack 1 exchanges gradients with GPU 2 in rack 3. Both NICs are wired to <b>leaf 2</b>, so the packets cross one switch and never touch a spine.`,
+     `Collective libraries build their rings and trees to keep as much traffic as possible on a single rail like this.`]},
+ spine:{label:'Cross-rail sync',seq:['rack2','leaf1','spine3','leaf4','rack4'],k:'Traced flow',t:'Traffic that changes rails',
+  d:[`A GPU on rail 1 in rack 2 needs a GPU on rail 4 in rack 4. The packet goes up to a spine and back down: three switch hops and two optical links.`,
+     `There are four equal paths, one per spine. How traffic is spread across them is exactly what distinguishes InfiniBand, RoCE, Ultra Ethernet and scheduled fabrics.`]},
+ data:{label:'Dataset read',seq:['storage','fe1','rack2'],k:'Traced flow',t:'Loading training data',
+  d:[`Batches are read from the storage cluster through the frontend network to the server's DPU, then into host or GPU memory.`,
+     `This path is sized so the data loader always stays ahead of the GPUs.`]},
+ ckpt:{label:'Checkpoint write',seq:['rack3','fe2','storage'],k:'Traced flow',t:'Writing a checkpoint',
+  d:[`Every so often the job saves model and optimizer state so it can restart after a failure. Checkpoints are large and bursty, and training pauses while they are written, so storage write throughput directly costs GPU time.`]}
+};
+const PATHS={
+ 'net-trad':{g:'Network receive',label:'Kernel TCP path',seq:['leaf','nic0','psw0','cpu0','ddr0','cpu0','psw0','gpu0'],k:'Data path · without GPUDirect',t:'Receiving through the kernel',
+  steps:[`Packet arrives at the NIC from the backend leaf.`,`NIC writes it into a kernel buffer in system RAM (up through the PCIe switch to the CPU).`,`The kernel copies it to the application's buffer. The CPU touches every byte.`,`The application copies it over PCIe again, down to the GPU.`],
+  verdict:`Two trips over PCIe, at least two copies in host memory, and CPU time proportional to the data. At 400G per GPU the host cannot keep up.`},
+ 'net-gdr':{g:'Network receive',label:'GPUDirect RDMA',seq:['leaf','nic0','psw0','gpu0'],k:'Data path · with GPUDirect',t:'GPUDirect RDMA receive',
+  steps:[`Packet arrives at the NIC from the backend leaf.`,`The NIC already holds a registration for the destination GPU buffer, so it issues a PCIe write addressed to GPU memory.`,`The PCIe switch forwards it sideways to the GPU. It never reaches the CPU or system RAM.`],
+  verdict:`One hop through one PCIe switch, zero host copies, no CPU per byte. This is why the GPU and its NIC are placed under the same switch.`},
+ 'send':{g:'Network receive',label:'RDMA send to the fabric',seq:['gpu6','psw3','nic6','leaf'],k:'Data path · with GPUDirect',t:'Sending gradients to another server',
+  steps:[`NCCL posts an RDMA send that points at a buffer in GPU memory.`,`The NIC reads that buffer directly through the PCIe switch.`,`The NIC segments it into packets and transmits on its rail toward the leaf switch.`],
+  verdict:`The same peer-to-peer path in the other direction. The remote NIC completes it with a GPUDirect receive.`},
+ 'sto-trad':{g:'Storage read',label:'Page-cache path',seq:['nvme0','psw0','cpu0','ddr0','cpu0','psw0','gpu1'],k:'Data path · without GPUDirect',t:'Reading a file the ordinary way',
+  steps:[`The SSD delivers blocks into the kernel page cache in system RAM.`,`The kernel copies them to the application's buffer.`,`The application copies that buffer over PCIe to the GPU.`],
+  verdict:`The CPU and memory bus become the limit long before the SSDs or the GPU do.`},
+ 'sto-gds':{g:'Storage read',label:'GPUDirect Storage',seq:['nvme0','psw0','gpu1'],k:'Data path · with GPUDirect',t:'GPUDirect Storage (local NVMe)',
+  steps:[`The application calls cuFile read with a GPU buffer as the destination.`,`The NVMe drive performs DMA through the PCIe switch directly into GPU memory.`],
+  verdict:`No page cache, no bounce buffer, no CPU copy. Throughput is limited by the drives and PCIe.`},
+ 'sto-remote':{g:'Storage read',label:'GDS from remote storage',seq:['frontend','dpu','cpu0','psw1','gpu2'],k:'Data path · with GPUDirect',t:'GPUDirect Storage from the storage cluster',
+  steps:[`Data arrives from the storage cluster over NVMe-oF or NFS over RDMA.`,`The frontend NIC writes it toward GPU memory.`,`Because this NIC hangs off the CPU's root port, the transfer passes through the root complex, but it is still device-to-device: nothing lands in system RAM.`],
+  verdict:`Zero-copy, but a longer PCIe route than a NIC that shares the GPU's switch. Some designs put the storage NIC under the PCIe switch for this reason.`},
+ 'g2g-nvlink':{g:'GPU to GPU',label:'NVLink',seq:['gpu0','nvsw2','gpu7'],k:'Data path · scale-up',t:'GPU to GPU over NVLink',
+  steps:[`GPU 0 sends on its NVLink ports.`,`An NVLink switch chip forwards to GPU 7 in a single hop.`],
+  verdict:`No PCIe, no host, hundreds of gigabytes per second. Each GPU spreads its lanes over every switch chip, so all four carry traffic in parallel.`},
+ 'g2g-pcie':{g:'GPU to GPU',label:'PCIe peer-to-peer',seq:['gpu0','psw0','cpu0','psw1','gpu3'],k:'Data path · fallback',t:'GPU to GPU over PCIe',
+  steps:[`Without a scale-up link, GPU 0 writes to GPU 3 through the PCIe tree.`,`The transfer climbs to the CPU's root complex and back down to the other switch.`],
+  verdict:`Limited to one x16 link (about 63 GB/s on Gen5) and it competes with NIC and SSD traffic. This gap is the reason scale-up links exist.`}
+};
+
+const INTRO={
+ cluster:{k:'Step 1 of 5',t:'The cluster: three networks around the GPUs',
+  d:[`A training cluster is thousands of GPUs that must behave like one computer. In every training step each GPU computes gradients on its share of the batch, then all of them exchange results before the next step can begin. The slowest link sets the pace.`,
+     `<b>Scale-up (green)</b> ties the GPUs inside a rack into one tightly coupled machine.<br><b>Scale-out backend (orange)</b> connects racks to each other. It carries only GPU-to-GPU traffic and is built to never be the bottleneck.<br><b>Frontend (violet)</b> and <b>storage (aqua)</b> bring data in and take checkpoints out.<br><b>Management (grey)</b> reaches every box when everything else is down.`],
+  tryit:[`Switch the scale-out fabric and watch the switch tier relabel.`,`Trace a flow to see which switches a packet crosses.`,`Hover a box to light up its links. Click it for details and alternatives.`,`Click a legend chip to isolate one kind of link.`]},
+ rack:{k:'Step 2 of 5',t:'Scale-up: one rack, one giant computer',
+  d:[`The left side is the physical rack; the right side is the same thing drawn as a network. Every accelerator connects to every scale-up switch, so any two accelerators are one hop apart at full bandwidth.`,
+     `This is the most contested layer in AI hardware. NVIDIA's NVLink is the incumbent. UALink, Broadcom's SUE and the OCP ESUN effort are open challengers, and Google skips switches entirely with a torus.`,
+     `Traffic that leaves the rack exits through the NICs at the bottom to the scale-out fabric from step 1.`],
+  tryit:[`Step through the scale-up technologies above the diagram.`,`Select "TPU ICI torus" to see a switchless topology.`,`Click the green spine beside the rack.`]},
+ node:{k:'Step 3 of 5',t:'Inside a GPU server',
+  d:[`An 8-GPU server in the style of NVIDIA HGX. Two link families do very different jobs.`,
+     `<b>PCIe (blue)</b> is a tree rooted at the CPUs. It fans out through four PCIe switches, each serving two GPUs, two NICs and an SSD.`,
+     `<b>NVLink (green)</b> is a mesh. Every GPU connects to all four switch chips, bypassing PCIe and the CPUs.`,
+     `Each GPU has its own NIC on the same PCIe switch and its own rail out to the backend. In rack-scale systems the NVLink switches move out of the server into the rack, but the roles are identical.`],
+  tryit:[`Hover a PCIe switch to see its family of devices.`,`Hover a GPU to see its NVLink fan-out.`,`Isolate "PCIe" and then "Scale-up" in the legend to compare tree and mesh.`]},
+ compare:{k:'Step 5 of 5',t:'Compare'}
+};
+
+/* ───────────── scene builder ───────────── */
+function mk(w,h){
+  const S={w,h,nodes:[],links:[],zones:[],notes:[],by:{}};
+  S.z=(x,y,w,h,label)=>S.zones.push({x,y,w,h,label});
+  S.n=(id,x,y,w,h,label,sub,o={})=>{const n=Object.assign({id,x,y,w,h,label,sub,info:id.replace(/\d+$/,'')},o);S.nodes.push(n);S.by[id]=n;return n;};
+  S.t=(x,y,text)=>S.notes.push({x,y,text});
+  S.p=(id,side,f=.5)=>{const n=S.by[id];
+    return side==='t'?[n.x+n.w*f,n.y]:side==='b'?[n.x+n.w*f,n.y+n.h]:side==='l'?[n.x,n.y+n.h*f]:[n.x+n.w,n.y+n.h*f];};
+  S.l=(type,a,pa,b,pb,o={})=>{const p1=S.p(a,...pa),p2=S.p(b,...pb);let pts;
+    if(o.pts)pts=[p1,...o.pts,p2];
+    else if(o.r==='z'){const m=o.m??(p1[1]+p2[1])/2;pts=[p1,[p1[0],m],[p2[0],m],p2];}
+    else if(o.r==='zh'){const m=o.m??(p1[0]+p2[0])/2;pts=[p1,[m,p1[1]],[m,p2[1]],p2];}
+    else pts=[p1,p2];
+    S.links.push({type,a,b,pts,label:o.label});};
+  return S;
+}
+
+function sceneCluster(s){
+  const S=mk(1180,700),F=FAB[s.fabric],T=SU[s.scaleup];
+  S.z(20,14,1140,196,'BACKEND · SCALE-OUT FABRIC · GPU-TO-GPU TRAFFIC BETWEEN RACKS');
+  S.z(20,220,1140,232,'COMPUTE · EACH RACK IS ONE SCALE-UP DOMAIN');
+  S.z(20,476,1140,210,'FRONTEND · STORAGE, CONTROL PLANE, USERS · OUT-OF-BAND MANAGEMENT');
+  const xs=[50,330,610,890];
+  xs.forEach((x,i)=>S.n('spine'+(i+1),x+30,46,170,42,F.spine+' '+(i+1),F.sub,{cls:'sw',tone:'scaleout'}));
+  xs.forEach((x,i)=>S.n('leaf'+(i+1),x+30,144,170,42,F.leaf+' '+(i+1),'rail '+(i+1),{cls:'sw',tone:'scaleout'}));
+  xs.forEach((x,i)=>{const r='rack'+(i+1),y=244;
+    S.n(r,x,y,230,198,'Rack / pod '+(i+1),'',{cls:'cont',labelTop:true,info:'rackpod'});
+    const ty=[y+28,y+58,y+126,y+156];
+    ty.forEach((v,j)=>S.n(r+'n'+j,x+36,v,180,26,'GPU server','',{cls:'sm',info:'gpunode',parent:r}));
+    S.n(r+'su',x+36,y+92,180,26,T.switched?T.swl:'ICI torus · no switch','',{cls:'sm sw',tone:'scaleup',info:'suswitch',parent:r});
+    ty.forEach((v,j)=>S.l('scaleup',r+'n'+j,['l',.5],r+'su',['l',.5],{pts:[[x+20,v+13],[x+20,y+105]]}));
+  });
+  for(let r=0;r<4;r++)for(let k=0;k<4;k++)S.l('scaleout','rack'+(r+1),['t',(k+1)/5],'leaf'+(k+1),['b',(r+1)/5],{label:'NIC '+(k+1)+' of every server → leaf '+(k+1)});
+  for(let k=0;k<4;k++)for(let p=0;p<4;p++)S.l('scaleout','leaf'+(k+1),['t',(p+1)/5],'spine'+(p+1),['b',(k+1)/5],{label:'leaf to spine uplink (optical)'});
+  S.n('fe1',330,506,230,42,'Frontend switch 1','Ethernet · 100–400G',{cls:'sw',tone:'frontend',info:'fesw'});
+  S.n('fe2',620,506,230,42,'Frontend switch 2','Ethernet · 100–400G',{cls:'sw',tone:'frontend',info:'fesw'});
+  S.n('storage',50,610,300,60,'Storage cluster','all-flash NVMe · parallel FS / object store',{tone:'storage'});
+  S.n('cpunodes',380,610,200,60,'CPU nodes','data prep · tokenise · augment');
+  S.n('ctrl',610,610,200,60,'Control plane','scheduler · login · telemetry');
+  S.n('wan',840,610,140,60,'WAN / DCI','users · other sites');
+  S.n('oobsw',1010,610,130,60,'OOB switch','1GbE to every BMC',{tone:'mgmt'});
+  xs.forEach((x,i)=>{S.l('frontend','rack'+(i+1),['b',.42],'fe1',['t',(i+1)/5],{label:'server DPU → frontend'});
+    S.l('frontend','rack'+(i+1),['b',.58],'fe2',['t',(i+1)/5],{label:'server DPU → frontend'});
+    S.l('mgmt','rack'+(i+1),['b',.07],'oobsw',['t',.5],{pts:[[x+16,464],[1075,464]]});});
+  S.l('storage','fe1',['b',.2],'storage',['t',.6]);S.l('storage','fe2',['b',.2],'storage',['t',.8]);
+  S.l('frontend','fe1',['b',.5],'cpunodes',['t',.4]);S.l('frontend','fe2',['b',.4],'cpunodes',['t',.7]);
+  S.l('frontend','fe1',['b',.8],'ctrl',['t',.3]);S.l('frontend','fe2',['b',.6],'ctrl',['t',.6]);
+  S.l('frontend','fe2',['b',.85],'wan',['t',.5]);
+  return S;
+}
+
+function sceneRack(s){
+  const S=mk(1180,680),T=SU[s.scaleup];
+  S.z(20,14,300,652,'PHYSICAL RACK');
+  S.z(340,14,820,652,T.switched?'LOGICAL TOPOLOGY · EVERY ACCELERATOR TO EVERY SWITCH (8 OF 72 SHOWN)':'LOGICAL TOPOLOGY · DIRECT-CONNECT TORUS (ONE 2D SLICE SHOWN)');
+  S.n('rackframe',58,40,224,548,'','',{cls:'cont',info:'rack'});
+  let y=50,first=0,last=0,c=0;
+  const tray=(id,label,o)=>{S.n(id,68,y,204,26,label,'',Object.assign({cls:'sm'},o));y+=31;};
+  tray('tor','Management switch',{info:'oobsw',tone:'mgmt'});
+  tray('pwr1','Power shelves',{info:'power'});
+  first=y;
+  for(let i=0;i<5;i++)tray('ct'+(c++),'Compute tray · 4 '+T.xpu+'s',{info:'tray'});
+  for(let i=0;i<4;i++)T.switched?tray('st'+i,T.sw,{tone:'scaleup',cls:'sm sw',info:'suswitch'}):tray('ct'+(c++),'Compute tray · 4 '+T.xpu+'s',{info:'tray'});
+  for(let i=0;i<5;i++)tray('ct'+(c++),'Compute tray · 4 '+T.xpu+'s',{info:'tray'});
+  last=y-5;
+  tray('pwr2','Power shelves',{info:'power'});
+  S.n('backplane',288,first,10,last-first,'','',{tone:'scaleup',rx:3,aria:'Copper spine'});
+  S.t(58,610,'Green bar: passive copper spine carrying');S.t(58,626,'every scale-up link. Liquid cooled, 120 kW+.');
+  if(T.switched){
+    S.n('extout',366,588,770,40,'Scale-out backend fabric','leaf switches · step 1',{cls:'ext',info:'extout'});
+    for(let i=0;i<4;i++)S.n('sw'+i,372+i*196,70,160,48,T.swl+' '+(i+1),T.swsub,{cls:'sw',tone:'scaleup',info:'suswitch'});
+    for(let j=0;j<8;j++){const x=366+j*98;
+      S.n('gpu'+j,x,330,84,86,T.xpu+' '+j,'',{cls:'gpu',labelTop:true});
+      S.n('hbm'+j,x+10,362,64,42,'HBM','',{cls:'sm',tone:'mem',parent:'gpu'+j});
+      for(let i=0;i<4;i++)S.l('scaleup','gpu'+j,['t',(i+1)/5],'sw'+i,['b',(j+1)/9],{label:T.short+' · '+T.xpu+' '+j+' to switch '+(i+1)});
+      S.n('sunic'+j,x+8,476,68,40,'NIC','800G',{cls:'sm',tone:'scaleout'});
+      S.l('pcie','gpu'+j,['b',.5],'sunic'+j,['t',.5],{label:'PCIe (via the host)'});
+      S.l('scaleout','sunic'+j,['b',.5],'extout',['t',(j+.5)/8]);
+    }
+  }else{
+    const X=[440,620,800,980],Y=[78,176,274,372];
+    for(let r=0;r<4;r++)for(let q=0;q<4;q++)S.n('tpu'+r+q,X[q],Y[r],84,56,'TPU','+ HBM',{cls:'gpu',info:'gpu'});
+    for(let r=0;r<4;r++)for(let q=0;q<4;q++){
+      if(q<3)S.l('scaleup','tpu'+r+q,['r',.5],'tpu'+r+(q+1),['l',.5],{label:'ICI link to neighbour'});
+      else S.l('scaleup','tpu'+r+'3',['r',.25],'tpu'+r+'0',['l',.25],{label:'ICI wrap-around link',pts:[[X[3]+100,Y[r]+14],[X[3]+100,Y[r]-14],[X[0]-16,Y[r]-14],[X[0]-16,Y[r]+14]]});
+      if(r<3)S.l('scaleup','tpu'+r+q,['b',.5],'tpu'+(r+1)+q,['t',.5],{label:'ICI link to neighbour'});
+      else S.l('scaleup','tpu3'+q,['b',.25],'tpu0'+q,['t',.25],{label:'ICI wrap-around link',pts:[[X[q]+21,Y[3]+70],[X[q]-30,Y[3]+70],[X[q]-30,Y[0]-28],[X[q]+21,Y[0]-28]]});
+    }
+    S.n('tpuhost',440,496,624,40,'TPU host servers','CPU + NIC · PCIe to the TPUs');
+    S.n('extout',440,588,624,40,'Datacenter network (Jupiter)','data loading · traffic leaving the pod',{cls:'ext',info:'fesw'});
+    S.l('pcie','tpu31',['b',.75],'tpuhost',['t',.39]);S.l('pcie','tpu32',['b',.75],'tpuhost',['t',.68]);
+    S.l('frontend','tpuhost',['b',.5],'extout',['t',.5]);
+  }
+  return S;
+}
+
+function sceneNode(){
+  const S=mk(1180,700);
+  S.z(20,62,1140,556,'GPU SERVER · 8 GPUS, HGX-STYLE');
+  S.n('frontend',430,12,160,34,'Frontend network','',{cls:'ext sm',info:'extfe'});
+  S.n('oob',615,12,120,34,'OOB network','',{cls:'ext sm',info:'extoob'});
+  S.n('ddr0',40,92,110,60,'DDR5','system RAM',{tone:'mem',info:'ddr'});
+  S.n('cpu0',215,88,200,68,'CPU 0','host · PCIe root complex');
+  S.n('dpu',450,92,120,60,'DPU','frontend NIC',{tone:'frontend'});
+  S.n('bmc',620,92,110,60,'BMC','management',{tone:'mgmt'});
+  S.n('cpu1',775,88,200,68,'CPU 1','host · PCIe root complex');
+  S.n('ddr1',1030,92,110,60,'DDR5','system RAM',{tone:'mem',info:'ddr'});
+  S.l('mem','ddr0',['r',.5],'cpu0',['l',.5],{label:'DDR5 memory channels'});
+  S.l('mem','cpu1',['r',.5],'ddr1',['l',.5],{label:'DDR5 memory channels'});
+  S.l('pcie','cpu0',['r',.5],'dpu',['l',.5],{label:'PCIe · CPU root port to DPU'});
+  S.l('frontend','dpu',['t',.5],'frontend',['b',.5]);
+  S.l('mgmt','bmc',['t',.5],'oob',['b',.5]);
+  for(let g=0;g<4;g++){const gx=40+280*g,cpu='cpu'+(g<2?0:1);
+    S.n('psw'+g,gx+35,212,200,44,'PCIe switch '+g,'Gen5 fan-out',{cls:'sw',tone:'pcie',info:'pciesw'});
+    S.l('pcie',cpu,['b',g%2?.75:.25],'psw'+g,['t',.5],{r:'z',label:'PCIe x16 · root port to switch'});
+    const a=2*g,b=2*g+1;
+    S.n('nic'+a,gx,304,70,44,'NIC '+a,'400G',{cls:'sm',tone:'scaleout'});
+    S.n('nvme'+g,gx+100,304,70,44,'NVMe','SSD',{cls:'sm',tone:'storage'});
+    S.n('nic'+b,gx+200,304,70,44,'NIC '+b,'400G',{cls:'sm',tone:'scaleout'});
+    S.l('pcie','psw'+g,['b',.06],'nic'+a,['t',.67],{label:'PCIe x16 · switch to NIC'});
+    S.l('pcie','psw'+g,['b',.5],'nvme'+g,['t',.5],{label:'PCIe x4 · switch to SSD'});
+    S.l('pcie','psw'+g,['b',.94],'nic'+b,['t',.33],{label:'PCIe x16 · switch to NIC'});
+    [a,b].forEach((n,i)=>{const x=gx+30+110*i;
+      S.n('gpu'+n,x,396,100,88,'GPU '+n,'',{cls:'gpu',labelTop:true});
+      S.n('hbm'+n,x+12,428,76,44,'HBM','on-package',{cls:'sm',tone:'mem',parent:'gpu'+n});
+      S.l('pcie','psw'+g,['b',i?.75:.25],'gpu'+n,['t',i?.45:.55],{label:'PCIe x16 · switch to GPU'});
+    });
+    S.n('nvsw'+g,gx+45,552,180,44,'NVSwitch '+g,'NVLink switch chip',{cls:'sw',tone:'scaleup',info:'nvswitch'});
+  }
+  S.n('leaf',40,640,1110,40,'Backend leaf switches · scale-out fabric','one rail per NIC',{cls:'ext',info:'extleaf'});
+  for(let n=0;n<8;n++){
+    for(let k=0;k<4;k++)S.l('scaleup','gpu'+n,['b',(k+1)/5],'nvsw'+k,['t',(n+1)/9],{label:'NVLink · GPU '+n+' to NVSwitch '+k});
+    const nn=S.by['nic'+n],x=n%2?nn.x+56:nn.x+14;
+    S.l('scaleout','nic'+n,['b',n%2?.8:.2],'leaf',['t',(x-40)/1110],{label:'rail '+(n+1)+' to its leaf switch'});
+  }
+  return S;
+}
+
+/* ───────────── rendering ───────────── */
+let scene=null;
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function resolve(v){return typeof v==='function'?v(state):v;}
+function ltName(t){return {pcie:'PCIe',scaleup:'Scale-up · '+(state.view==='node'||state.view==='paths'?'NVLink':SU[state.scaleup].short),scaleout:'Scale-out backend'+(state.view==='cluster'?' · '+FAB[state.fabric].short:''),frontend:'Frontend Ethernet',storage:'Storage I/O',mem:'Memory bus',mgmt:'Out-of-band management'}[t];}
+const dPath=pts=>'M'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join('L');
+
+function draw(){
+  const svg=$('#svg');svg.innerHTML='';
+  const S=scene=state.view==='cluster'?sceneCluster(state):state.view==='rack'?sceneRack(state):sceneNode();
+  svg.setAttribute('viewBox','0 0 '+S.w+' '+S.h);
+  S.zones.forEach(z=>el('rect',{class:'zone',x:z.x,y:z.y,width:z.w,height:z.h,rx:10},svg));
+  const gc=el('g',{},svg),gl=el('g',{},svg),gn=el('g',{},svg);
+  S.links.forEach((l,i)=>{const g=el('g',{class:'link lt-'+l.type,'data-i':i},gl),d=dPath(l.pts);el('path',{class:'vis',d},g);el('path',{class:'hit',d},g);});
+  S.nodes.forEach(n=>{
+    const g=el('g',{class:'node '+(n.cls||'')+(n.tone?' tone-'+n.tone:'')+(state.sel===n.id?' sel':''),'data-id':n.id,tabindex:0,role:'button','aria-label':n.aria||[n.label,n.sub].filter(Boolean).join(', ')},/\bcont\b/.test(n.cls||'')?gc:gn);
+    el('rect',{class:'box',x:n.x,y:n.y,width:n.w,height:n.h,rx:n.rx??6},g);
+    if(n.label){const cx=n.x+n.w/2,ty=n.labelTop?n.y+18:n.y+n.h/2+(n.sub?-2:4.5);
+      el('text',{class:'lb',x:cx,y:ty},g).textContent=n.label;
+      if(n.sub)el('text',{class:'sb',x:cx,y:ty+14},g).textContent=n.sub;}
+  });
+  S.zones.forEach(z=>{if(z.label)el('text',{class:'zl',x:z.x+12,y:z.y+17},svg).textContent=z.label;});
+  S.notes.forEach(t=>el('text',{class:'note',x:t.x,y:t.y},svg).textContent=t.text);
+  applyFocus();
+}
+
+function findLink(a,b){return scene.links.findIndex(l=>(l.a===a&&l.b===b)||(l.a===b&&l.b===a));}
+function applyFocus(){
+  const svg=$('#svg');svg.classList.remove('focus');
+  const seq=state.view==='paths'?PATHS[state.path]?.seq:state.view==='cluster'&&state.flow?FLOWS[state.flow].seq:null;
+  let onL=new Set(),onN=new Set();
+  if(seq){
+    let pts=[];
+    for(let i=0;i<seq.length-1;i++){const li=findLink(seq[i],seq[i+1]);if(li<0){console.warn('no link',seq[i],seq[i+1]);continue;}
+      onL.add(li);const l=scene.links[li];pts=pts.concat(l.a===seq[i]?l.pts:[...l.pts].reverse());}
+    seq.forEach(id=>onN.add(id));
+    let len=0;for(let i=1;i<pts.length;i++)len+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
+    const dur=Math.max(2.2,len/150),g=el('g',{'pointer-events':'none'},svg);
+    for(let k=0;k<3;k++){const c=el('circle',{class:'pkt',r:6},g);
+      el('animateMotion',{dur:dur.toFixed(2)+'s',repeatCount:'indefinite',begin:(-k*dur/3).toFixed(2)+'s',path:dPath(pts)},c);}
+  }else if(state.iso){
+    scene.links.forEach((l,i)=>{if(l.type===state.iso){onL.add(i);onN.add(l.a);onN.add(l.b);}});
+  }else return;
+  scene.nodes.forEach(n=>{if(n.parent&&onN.has(n.parent))onN.add(n.id);});
+  if(state.iso&&!seq)scene.nodes.forEach(n=>{if(n.parent&&onN.has(n.id))onN.add(n.parent);});
+  svg.classList.add('focus');
+  svg.querySelectorAll('.link').forEach(g=>g.classList.toggle('on',onL.has(+g.dataset.i)));
+  svg.querySelectorAll('.node').forEach(g=>g.classList.toggle('on',onN.has(g.dataset.id)));
+}
+
+function seg(label,opts,cur,act){
+  return `<div class="ctl"><span class="ctl-l">${label}</span><div class="seg" role="group" aria-label="${label}">`+
+    opts.map(([k,l])=>`<button data-act="${act}" data-key="${k}" aria-pressed="${k===cur}">${l}</button>`).join('')+`</div></div>`;
+}
+function drawControls(){
+  let h='',cap='';
+  if(state.view==='cluster'){
+    h=seg('Scale-out fabric',Object.entries(FAB).map(([k,v])=>[k,v.short]),state.fabric,'fabric')+
+      seg('Trace a flow',[['','Off'],...Object.entries(FLOWS).map(([k,v])=>[k,v.label])],state.flow,'flow');
+    cap=FAB[state.fabric].tag;
+  }else if(state.view==='rack'){
+    h=seg('Scale-up technology',Object.entries(SU).map(([k,v])=>[k,v.short]),state.scaleup,'scaleup');
+    cap=SU[state.scaleup].tag;
+  }else if(state.view==='node'){
+    cap='PCIe is a tree rooted at the CPUs. NVLink is a mesh between the GPUs. Each GPU has its own NIC and its own rail out.';
+  }else if(state.view==='paths'){
+    const groups={};Object.entries(PATHS).forEach(([k,v])=>(groups[v.g]=groups[v.g]||[]).push([k,v.label]));
+    h=Object.entries(groups).map(([g,o])=>seg(g,o,state.path,'path')).join('');
+    cap='Pick a path and follow the packets. Compare each ordinary path with its GPUDirect equivalent.';
+  }
+  $('#controls').innerHTML=h;$('#caption').textContent=cap;
+}
+function drawLegend(){
+  const types=[...new Set(scene.links.map(l=>l.type))];
+  $('#legend').innerHTML='<span class="row-l">Links</span>'+types.map(t=>
+    `<button class="chip" data-lt="${t}" aria-pressed="${state.iso===t}"><svg viewBox="0 0 30 10" class="link lt-${t}"><path class="vis" d="M2,5L28,5"/></svg>${ltName(t)}</button>`).join('');
+  const cs={cluster:['three','clos','cc','rdma','media','dpuc'],rack:['three','media','cxl'],node:['gpudirect','rdma','cxl','dpuc'],paths:['gpudirect','rdma']}[state.view]||[];
+  $('#concepts').innerHTML='<span class="row-l">Concepts</span>'+cs.map(c=>
+    `<button class="chip" data-concept="${c}" aria-pressed="${state.panel.kind==='concept'&&state.panel.key===c}">${CONCEPTS[c].t}</button>`).join('');
+}
+function infoHTML(i){
+  let h=`<div class="kick">${i.k||''}</div><h2>${i.t}</h2>`;
+  (i.d||[]).forEach(p=>h+=`<p>${p}</p>`);
+  if(i.steps)h+=`<ol>${i.steps.map(s=>`<li>${s}</li>`).join('')}</ol>`;
+  if(i.verdict)h+=`<p class="verdict">${i.verdict}</p>`;
+  if(i.tryit)h+=`<h3>Try this</h3><ul>${i.tryit.map(s=>`<li>${s}</li>`).join('')}</ul>`;
+  if(i.specs)h+=`<h3>Key facts</h3><dl>${i.specs.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+  if(i.alt)h+=`<h3>Competing and alternative technologies</h3><ul>${i.alt.map(([k,v])=>`<li><b>${k}</b>: ${v}</li>`).join('')}</ul>`;
+  if(i.dep)h+=`<h3>Where it is deployed</h3><p>${i.dep}</p>`;
+  if(i.go)h+=`<button class="go" data-go="${i.go[0]}">${i.go[1]} →</button>`;
+  return h;
+}
+function drawPanel(){
+  const p=state.panel;let i,back=true;
+  if(p.kind==='node')i=resolve(INFO[p.key]);
+  else if(p.kind==='link')i=resolve(LINKINFO[p.key]);
+  else if(p.kind==='concept')i=CONCEPTS[p.key];
+  else if(p.kind==='tech')i=p.key==='fabric'?FAB[state.fabric].info:SU[state.scaleup].info;
+  else if(p.kind==='flow'&&state.flow)i=FLOWS[state.flow];
+  if(!i&&state.view==='paths'){i=PATHS[state.path];back=false;}
+  if(!i){i=INTRO[state.view];back=false;}
+  let h=(back?'<button class="back" data-back="1">← Step overview</button>':'')+infoHTML(i);
+  if(!back&&state.view!=='paths'){const n=VIEWS.findIndex(v=>v[0]===state.view)+1;if(n<VIEWS.length)h+=`<button class="go" data-go="${VIEWS[n][0]}">Next: ${VIEWS[n][1]} →</button>`;}
+  if(!back&&state.view==='paths')h+=`<button class="go" data-go="compare">Next: Compare the options →</button>`;
+  $('#panel').innerHTML=h;$('#panel').scrollTop=0;
+}
+
+/* ───────────── compare tab ───────────── */
+function drawCompare(){
+  const bars=[['400GbE NIC port','scaleout',50],['PCIe Gen5 x16','pcie',63],['800GbE NIC port','scaleout',100],['UALink port, 4 × 200G','scaleup',100],['PCIe Gen6 x16','pcie',121],['NVLink 4 · H100, all links','scaleup',450],['NVLink 5 · Blackwell, all links','scaleup',900],['NVLink 6 · Rubin, all links','scaleup',1800]];
+  const tbl=(head,rows)=>`<div class="scroll"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  $('#compare').innerHTML=`
+  <div class="card"><h2>How much each link carries</h2>
+   <p class="lede">Gigabytes per second in one direction. A GPU's scale-up ports together carry an order of magnitude more than its PCIe slot or its NIC, which is why traffic is kept inside the scale-up domain whenever possible. NVLink figures are the sum of all of a GPU's links; NVIDIA quotes double these numbers because it counts both directions.</p>
+   <div class="key"><span><i style="background:var(--c-pcie)"></i>PCIe (host bus)</span><span><i style="background:var(--c-scaleout)"></i>Scale-out Ethernet</span><span><i style="background:var(--c-scaleup)"></i>Scale-up</span></div>
+   <div class="bars">${bars.map(([n,t,v])=>`<div class="bl">${n}</div><div class="bt" title="${n}: ${v} GB/s per direction"><div class="bar" style="width:${(v/1800*88).toFixed(2)}%;background:var(--c-${t})"></div><span class="bv">${v.toLocaleString()} GB/s</span></div>`).join('')}</div>
+  </div>
+  <div class="card"><h2>Scale-up: inside the rack</h2><p class="lede">Accelerator-to-accelerator links. The contest is between NVIDIA's proprietary fabric, a new open protocol (UALink), and Ethernet made lossless (SUE, ESUN).</p>
+  ${tbl(['Technology','Backed by','What it is','Speed and scale','Status and deployments'],[
+   ['NVLink 5 / 6','NVIDIA','Proprietary switched GPU fabric with memory-style semantics','1.8 TB/s per GPU (Blackwell), 3.6 TB/s (Rubin); 72 GPUs per rack','Shipping at volume in every GB200 and GB300 rack'],
+   ['NVLink Fusion','NVIDIA with MediaTek, Marvell, Alchip, Astera Labs, Qualcomm, Fujitsu, Intel, Arm','NVLink IP licensed for custom XPUs and third-party CPUs; switches stay NVIDIA','Same as NVLink','Announced May 2025; AWS Trainium4 slated to adopt'],
+   ['UALink 1.0','AMD, Intel, AWS, Google, Meta, Microsoft, Cisco, HPE, Astera Labs, Apple, Alibaba','Open memory-semantic link and switch standard on Ethernet-class SerDes','200G per lane, up to 4 lanes per port; 1,024 accelerators per pod','Spec April 2025; first silicon 2026; AMD Helios racks'],
+   ['SUE','Broadcom','Scale-up transactions over standard Ethernet with link-layer retry and credit flow control','Tomahawk Ultra (51.2T, about 250 ns), Tomahawk 6 (102.4T); 1,000+ XPUs in one tier','Spec 2025; aimed at hyperscaler custom XPU racks'],
+   ['ESUN','OCP workstream: AMD, Arista, Arm, Broadcom, Cisco, HPE, Marvell, Meta, Microsoft, NVIDIA, OpenAI, Oracle','Open specification for Ethernet framing and switching in scale-up; transport left to SUE-T and others','Ethernet speeds','Launched October 2025; specification in progress'],
+   ['ICI','Google','Direct chip-to-chip 3D torus, no switches, re-wired by optical circuit switches','4,096 chips per pod (TPU v4), 9,216 (Ironwood)','In production in Google TPU pods'],
+   ['NeuronLink','AWS','Trainium chip-to-chip interconnect','64 chips per Trainium2 UltraServer','In production'],
+   ['Infinity Fabric','AMD','Direct GPU mesh in MI300-series servers; the ancestor of UALink','8 GPUs per server','Shipping; succeeded by UALink'],
+   ['Integrated RoCE','Intel Gaudi 3','Ethernet ports on the accelerator for both scale-up and scale-out','24 × 200GbE per chip','Shipping in limited volume'],
+   ['PCIe peer-to-peer','PCI-SIG','The fallback when no scale-up link exists','About 63 GB/s (Gen5 x16)','Universal'],
+   ['CXL','CXL Consortium','Memory expansion and pooling on PCIe wiring; not a GPU-to-GPU fabric','PCIe Gen5 / Gen6 speeds','Niche in training; more relevant to host memory']])}</div>
+  <div class="card"><h2>Scale-out: between racks</h2><p class="lede">The backend network. All of these deliver RDMA-style transfers; they differ in how they avoid loss and how they spread a few very large flows across many paths.</p>
+  ${tbl(['Technology','Backed by','How it stays lossless','How it balances load','Switch silicon','Seen at'],[
+   ['InfiniBand','NVIDIA','Credit-based link flow control','Subnet manager with adaptive routing','Quantum-2 (400G), Quantum-X800 (800G)','Microsoft Azure, CoreWeave, Lambda, DGX SuperPODs'],
+   ['RoCEv2 Ethernet','Multi-vendor','PFC and ECN with DCQCN','ECMP, flowlets, adaptive routing (Spectrum-X), rail pinning','Spectrum-4, Tomahawk 5 / 6, Silicon One G200, Teralynx 10','Meta, Oracle, xAI, Microsoft and most neoclouds'],
+   ['Ultra Ethernet (UET)','UEC: AMD, Arista, Broadcom, Cisco, HPE, Intel, Meta, Microsoft, NVIDIA','Tolerates loss: packet trimming and fast resend; optional LLR and CBFC','Per-packet spraying, out-of-order delivery','Any Ethernet; Tomahawk 6 and Jericho 4 for the full feature set','Early deployments, for example Oracle with AMD Pollara'],
+   ['Scheduled fabric','Broadcom, Arista, Cisco; Meta DSF','Credits granted from egress to ingress before sending','Cells sprayed evenly over every spine','Jericho3-AI, Jericho 4, Ramon','Meta and other very large Ethernet fabrics'],
+   ['SRD on EFA','AWS','Reliable datagrams implemented in Nitro','Per-packet multipath','AWS-designed','AWS'],
+   ['Falcon','Google with Intel','Hardware transport with delay-based congestion control','Multipath','Jupiter fabric, Intel IPU','Google']])}</div>
+  <div class="card"><h2>Who runs what</h2><p class="lede">A simplified snapshot from public sources. Every operator runs several generations at once.</p>
+  ${tbl(['Operator','Accelerators','Scale-up','Scale-out backend','DPU and frontend','Storage'],[
+   ['Meta','NVIDIA (Grand Teton, Catalina racks), MTIA','NVLink','RoCEv2 Ethernet on Arista and Minipack switches; DSF scheduled fabric; one InfiniBand cluster','In-house FBOSS switches','Tectonic'],
+   ['Microsoft Azure','NVIDIA, AMD, Maia','NVLink','InfiniBand for flagship NVIDIA clusters; Ethernet growing','Azure Boost','Azure Blob, managed Lustre'],
+   ['Google','TPU, NVIDIA','ICI torus with optical circuit switches; NVLink','Jupiter Ethernet with Falcon transport','Titanium (Intel IPU)','Colossus, managed Lustre'],
+   ['AWS','Trainium, NVIDIA','NeuronLink; NVLink','Ethernet with EFA and SRD','Nitro','S3, FSx for Lustre'],
+   ['Oracle OCI','NVIDIA, AMD','NVLink; UALink with AMD Helios','RoCEv2 Ethernet; Ultra Ethernet NICs with AMD','Pensando, BlueField','Lustre, object storage'],
+   ['xAI','NVIDIA','NVLink','Spectrum-X Ethernet','BlueField','All-flash file and object'],
+   ['CoreWeave','NVIDIA','NVLink','InfiniBand and Spectrum-X Ethernet','BlueField-3','VAST, WEKA, object storage']])}</div>`;
+}
+
+/* ───────────── state, events ───────────── */
+function setHash(){
+  const o={v:state.view,f:state.fabric,u:state.scaleup};
+  if(state.flow)o.fl=state.flow;if(state.view==='paths')o.p=state.path;if(state.sel)o.s=state.sel;if(state.iso)o.i=state.iso;
+  history.replaceState(null,'','#'+new URLSearchParams(o));
+}
+function render(){
+  $('#steps').innerHTML=VIEWS.map(([k,l],i)=>`<button data-view="${k}" aria-current="${k===state.view}"><i>${i+1}</i>${l}</button>`).join('');
+  const cmp=state.view==='compare';
+  $('#stage').hidden=cmp;$('#panel').hidden=cmp;$('#compare').hidden=!cmp;
+  if(cmp)drawCompare();else{draw();drawControls();drawLegend();drawPanel();}
+  setHash();
+}
+function go(v){state.view=v;state.sel=null;state.iso=null;state.panel={kind:'intro'};render();window.scrollTo({top:0});}
+
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-view],[data-go],[data-back],[data-act],[data-lt],[data-concept]');
+  if(!t)return;
+  if(t.dataset.view)return go(t.dataset.view);
+  if(t.dataset.go)return go(t.dataset.go);
+  if(t.dataset.back){state.sel=null;state.panel={kind:'intro'};return render();}
+  if(t.dataset.act){const a=t.dataset.act,k=t.dataset.key;state.sel=null;state.iso=null;
+    if(a==='fabric'){state.fabric=k;state.panel={kind:'tech',key:'fabric'};}
+    if(a==='scaleup'){state.scaleup=k;state.panel={kind:'tech',key:'scaleup'};}
+    if(a==='flow'){state.flow=k;state.panel=k?{kind:'flow'}:{kind:'intro'};}
+    if(a==='path'){state.path=k;state.panel={kind:'intro'};}
+    return render();}
+  if(t.dataset.lt){const k=t.dataset.lt;state.iso=state.iso===k?null:k;state.sel=null;if(state.view==='cluster')state.flow='';
+    state.panel=state.iso?{kind:'link',key:k}:{kind:'intro'};return render();}
+  if(t.dataset.concept){state.sel=null;state.panel={kind:'concept',key:t.dataset.concept};return render();}
+});
+const svg=$('#svg'),tip=$('#tip');
+function pick(e){const n=e.target.closest('.node');if(n)return{node:scene.by[n.dataset.id]};const l=e.target.closest('.link');if(l&&l.dataset.i!==undefined)return{link:scene.links[+l.dataset.i]};return{};}
+function select(p){
+  if(p.node){state.sel=p.node.id;state.panel={kind:'node',key:INFO[p.node.info]?p.node.info:'gpu'};}
+  else if(p.link){state.sel=null;state.panel={kind:'link',key:p.link.type};}
+  else return;
+  render();
+}
+svg.addEventListener('click',e=>select(pick(e)));
+svg.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();const id=e.target.dataset?.id;select(pick(e));if(id)$('#svg [data-id="'+id+'"]')?.focus();}});
+svg.addEventListener('mousemove',e=>{
+  const p=pick(e);let txt='';
+  svg.querySelectorAll('.hv').forEach(x=>x.classList.remove('hv'));
+  if(p.node){const i=resolve(INFO[p.node.info]);txt='<b>'+(p.node.label||i?.t||'')+'</b>'+(i&&p.node.label!==i.t?'<br>'+i.t:'');
+    scene.links.forEach((l,ix)=>{if(l.a===p.node.id||l.b===p.node.id)svg.querySelector('.link[data-i="'+ix+'"]').classList.add('hv');});}
+  else if(p.link){txt='<b>'+ltName(p.link.type)+'</b>'+(p.link.label?'<br>'+p.link.label:'');e.target.closest('.link').classList.add('hv');}
+  svg.classList.toggle('hovering',!!svg.querySelector('.hv')&&!svg.classList.contains('focus'));
+  if(!txt){tip.style.opacity=0;return;}
+  const r=svg.parentNode.getBoundingClientRect();tip.innerHTML=txt;tip.style.opacity=1;
+  const x=Math.min(e.clientX-r.left+14,r.width-tip.offsetWidth-4);
+  tip.style.left=x+'px';tip.style.top=(e.clientY-r.top+16)+'px';
+});
+svg.addEventListener('mouseleave',()=>{tip.style.opacity=0;svg.classList.remove('hovering');svg.querySelectorAll('.hv').forEach(x=>x.classList.remove('hv'));});
+
+/* theme */
+const root=document.documentElement,mq=matchMedia('(prefers-color-scheme: dark)');let userTheme=null;
+function setTheme(t){root.dataset.theme=t;$('#theme').textContent=t==='dark'?'Light theme':'Dark theme';}
+$('#theme').addEventListener('click',()=>{userTheme=root.dataset.theme==='dark'?'light':'dark';setTheme(userTheme);});
+mq.addEventListener('change',()=>{if(!userTheme)setTheme(mq.matches?'dark':'light');});
+
+/* boot */
+(function(){
+  const q=new URLSearchParams(location.hash.slice(1));
+  if(VIEWS.some(v=>v[0]===q.get('v')))state.view=q.get('v');
+  if(FAB[q.get('f')])state.fabric=q.get('f');
+  if(SU[q.get('u')])state.scaleup=q.get('u');
+  if(FLOWS[q.get('fl')]){state.flow=q.get('fl');state.panel={kind:'flow'};}
+  if(PATHS[q.get('p')])state.path=q.get('p');
+  if(LINKINFO[q.get('i')]){state.iso=q.get('i');state.panel={kind:'link',key:state.iso};}
+  userTheme=q.get('t')==='dark'||q.get('t')==='light'?q.get('t'):null;
+  setTheme(userTheme||(mq.matches?'dark':'light'));
+  render();
+  const s=q.get('s');if(s&&scene&&scene.by[s])select({node:scene.by[s]});
+})();
+</script>
+</body>
+</html>
