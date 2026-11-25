@@ -148,7 +148,7 @@ svg.focus .link.on .vis{stroke-width:4.5}
     <p>An interactive map of how a prompt becomes tokens: the serving path, the cluster, and the memory hierarchy. Click anything.</p>
   </div>
   <div class="top-r">
-    <div class="pages" aria-label="Tutorials"><a href="training-infra.html">Training</a><a href="inference-infra.html" aria-current="page">Inference</a></div>
+    <div class="pages" aria-label="Tutorials"><a href="distributed-training.html">Distributed training</a><a href="Networking/collectives.html">Collectives</a><a href="training-infra.html">Training infra</a><a href="Networking/mrc-srv6.html">MRC &amp; SRv6</a><a href="Networking/congestion.html">Congestion</a><a href="inference-infra.html" aria-current="page">Inference infra</a></div>
     <button class="theme" id="theme" aria-label="Toggle light or dark theme">Dark theme</button>
   </div>
 </header>
@@ -258,21 +258,56 @@ const PLAT={
    d:[`The Language Processing Unit keeps the model in <b>SRAM on the chip</b> rather than in HBM beside it, and the compiler schedules every operation and data movement ahead of time, so there is no contention at run time.`,
       `Each chip holds little memory, so a model is spread across hundreds of chips linked directly to each other. The result is very high tokens per second for a single stream. The limits are total memory, long contexts and cost per token at high batch.`],
    specs:[['Memory','on-chip SRAM, a few hundred megabytes per first-generation chip'],['Scaling','hundreds of LPUs per model, direct chip-to-chip links'],['Sweet spot','latency-critical decode: voice, agents, interactive coding']],
-   alt:[['Cerebras','same goal, one wafer instead of many chips'],['SambaNova','SRAM + HBM + DDR in three tiers']],
+   alt:[['Cerebras','same goal, a whole wafer per system instead of many small chips'],['SambaNova','SRAM + HBM + DDR in three tiers']],
    dep:`GroqCloud and sovereign deployments. NVIDIA licensed the technology and hired much of the team at the end of 2025.`}},
- cerebras:{short:'Cerebras wafer-scale',tray:'CS-3 · one wafer each',su:'links between systems',
-  tag:`Cerebras: one chip the size of a wafer. Compute and SRAM memory sit together, so memory bandwidth is enormous.`,
-  info:{k:'Accelerator platform',t:'Cerebras wafer-scale engine',
-   d:[`Instead of dicing a wafer into chips and wiring them back together, Cerebras uses the whole wafer as one processor. Cores and memory are interleaved across it, connected by an on-wafer mesh.`,
-      `Decode is limited by how fast weights can be read. With memory millimetres from the compute, Cerebras reports thousands of tokens per second on mid-sized models. The constraint is capacity: larger models and long contexts must span several wafers.`],
-   specs:[['WSE-3','46,225 mm², about 900,000 cores, 44 GB of on-wafer SRAM'],['System','CS-3, liquid cooled, roughly 23 kW'],['Sweet spot','fastest single-stream output; reasoning models that emit many tokens']],
-   alt:[['Groq','many small SRAM chips'],['GPUs','far more memory per dollar, far more throughput at large batch']],
-   dep:`Cerebras Inference cloud; OpenAI signed a multi-year capacity agreement in January 2026; also used by Meta, Mistral and Perplexity.`}}
+ cerebras:{short:'Cerebras wafer-scale',tray:'Wafer-Scale Backpack',su:'Direct Wafer Links',wafer:true,
+  fe:'Ethernet to the Wafer I/O Modules',ew:'Wafer I/O Modules · RoCE v2',beSub:'RoCE v2 over Ethernet',ewName:'East-west RoCE v2',
+  ewZone:'EAST-WEST AND STORAGE · PREFILL HAND-OFF, WEIGHT LOADING',
+  rackLabel:i=>'CS-4 rack '+(i+1),
+  tag:`Cerebras CS-4: three wafers per rack. Each wafer is its own scale-up fabric; Direct Wafer Links (green) join wafers within and across racks with no switch.`,
+  info:{k:'Accelerator platform',t:'Cerebras CS-4',
+   d:[`Cerebras uses a whole wafer as one processor: about 900,000 small cores, each with its own SRAM, joined by a mesh that runs across the wafer. The CS-4 (August 2026) is a rack-scale system holding <b>three</b> such wafers, the WSE-3 Turbo.`,
+      `Each wafer sits in a <b>Wafer-Scale Backpack</b>: a rear-mounted module that packs the wafer, its power conversion, direct liquid cooling, I/O boards and control electronics together. The rack itself is mostly a power array that the three backpacks plug into.`,
+      `There are two networks. <b>Direct Wafer Links</b> connect wafer to wafer, inside a rack and between racks, without a switch, so a model too large for one wafer can span many. <b>RoCE v2 over Ethernet</b> connects the rack to everything else, including GPU or ASIC prefill engines for disaggregated inference.`],
+   specs:[['WSE-3 Turbo','4 trillion transistors, about 900,000 cores, 250 PFLOPS, 43.2 PB/s memory bandwidth; 44 GB SRAM per wafer (press reports)'],['CS-4 rack','3 wafers: 750 PFLOPS, 129.6 PB/s; rack power not published'],['Wafer to wafer','Direct Wafer Links, switch-free, as low as 2 µs'],['To other systems','RoCE v2 RDMA over Ethernet; about 7.2 Tb/s of I/O per rack (press reports)'],['Predecessor','CS-3: one WSE-3 per system, 12 × 100GbE, multi-wafer models pipelined over plain Ethernet'],['Sweet spot','fastest single-stream decode; reasoning and agentic workloads']],
+   alt:[['Groq','many small SRAM chips'],['GPUs','far more memory per dollar; now also a prefill partner rather than only a rival']],
+   dep:`Cerebras Inference cloud; OpenAI signed a multi-year capacity agreement in January 2026; also used by Meta, Mistral and Perplexity. CS-4 was announced in August 2026.`},
+  ov:{
+   su:{k:'Compute module',t:'Wafer-Scale Backpack · WSE-3 Turbo',
+    d:[`One wafer, used whole. It is 84 identical die left uncut and stitched together so the wafer behaves as a single 2D mesh of cores, each with its own SRAM. <b>That mesh is the scale-up fabric</b> for everything placed on this wafer, which is why the box is green.`,
+       `The backpack wraps the wafer in everything it needs: power conversion 0.5 mm from the silicon (Cerebras says this delivers twice the power of the previous design), a cold plate, and I/O boards along the wafer edges.`,
+       `Those I/O boards are the <b>Wafer I/O Module</b>. It has two modes: Direct Wafer Links to other wafers, and RoCE v2 over Ethernet to the rest of the data centre.`],
+    specs:[['Cores','about 900,000'],['Compute','250 PFLOPS'],['Memory bandwidth','43.2 PB/s'],['SRAM','44 GB (press reports; not on the Cerebras pages)']]},
+   be:{k:'East-west',t:'East-west RoCE v2 leaf',
+    d:[`Standard RDMA over Ethernet. It carries weights being loaded into wafer SRAM and, in disaggregated inference, the state a prefill engine hands to the CS-4 for decoding.`,
+       `It does <b>not</b> carry wafer-to-wafer traffic. That goes over Direct Wafer Links, which bypass the switches.`,
+       `Cerebras has not published port counts or speeds; press reports put total I/O at about 7.2 Tb/s per rack.`]},
+   'L:scaleout':{k:'Link type',t:'East-west RoCE v2 (RDMA over Ethernet)',
+    d:[`The Wafer I/O Module's standards-based mode. It connects CS-4 racks to storage and to other vendors' systems.`,
+       `Its main inference job is the prefill hand-off: a GPU or ASIC processes the prompt and sends the resulting state here for the wafers to decode.`]},
+   'L:scaleup':{k:'Link type · scale-up',t:'Direct Wafer Links',
+    d:[`Switch-free links from one wafer's I/O boards to another's, inside a rack and across racks. Cerebras quotes wafer-to-wafer latency as low as 2 microseconds.`,
+       `They exist for models that do not fit on one wafer. The model is spread over several wafers and each generated token crosses every hop, so hop latency adds up with model size. Cerebras's chart puts the total at about 0.2 ms for a 10-trillion-parameter model.`,
+       `Cerebras has not published the link technology, bandwidth or wiring pattern. The chain drawn here (wafer to wafer down the rack, then on to the next rack) is an assumption.`],
+    specs:[['Latency','as low as 2 µs per hop'],['Switches','none'],['Reach','within and across racks']]}},
+  flows:{
+   req:{d:[`A request enters at the border, is load-balanced to a rack and reaches a wafer through its Wafer I/O Module. Generated tokens stream back the same way.`,
+           `Cerebras has not described the host CPUs that tokenise and schedule for a CS-4, so none are drawn inside the rack.`]},
+   load:{d:[`The compiler maps the model onto regions of each wafer. The weights are then written over Ethernet into on-wafer SRAM and stay there. Nothing is paged from HBM while serving.`]},
+   xfer:{label:'Wafer-to-wafer hop',seq:['rack1','rack2'],t:'Scale-up: a model spanning wafers',
+    d:[`A model too large for one wafer is spread across several. For each token, intermediate results pass from wafer to wafer over Direct Wafer Links, first down the rack and then on to the next rack.`,
+       `No switch is involved and each hop costs as little as 2 microseconds. On the CS-3 this hop went over ordinary Ethernet.`]},
+   ctx:{label:'Prefill hand-off',seq:['prefill','be2','rack4'],t:'East-west: disaggregated inference',
+    d:[`Prefill is compute-bound and does not need the wafer's memory bandwidth, so it can run on cheaper hardware. A GPU or ASIC processes the prompt and sends the resulting state to the CS-4 over RoCE v2.`,
+       `The wafers then do only the decode, which is where their speed matters. Cerebras names AMD Helios and AWS Trainium as prefill partners.`]}}}
 };
 
 /* ───────────── component info ───────────── */
 const TRAIN=(hash,label)=>['training-infra.html#'+hash,label];
 const INFO={
+ prefill:{k:'Disaggregated inference',t:'Prefill engines (GPU or ASIC)',
+  d:[`Other vendors' accelerators that process the incoming prompt. Prefill is compute-bound rather than memory-bandwidth-bound, so it does not need a wafer.`,
+     `They hand the resulting state to the CS-4 over RoCE v2, and the wafers decode. Cerebras names AMD Helios and AWS Trainium as partners for this.`]},
  users:{k:'Clients',t:'Users and applications',
   d:[`Chat apps, coding assistants, agents and batch jobs. They send a prompt over HTTPS and receive tokens as a stream (server-sent events or gRPC), so the user sees the answer as it is generated.`,
      `Agents change the load shape: one user task may trigger dozens of model calls, each re-sending a long and mostly unchanged context. That makes KV-cache reuse central.`]},
@@ -617,7 +652,8 @@ function sceneCluster(s){
   const S=mk(1180,700),P=PLAT[s.plat];
   S.z(20,14,1140,188,'FRONTEND · NORTH-SOUTH · REQUESTS IN, TOKENS OUT');
   S.z(20,214,1140,238,'COMPUTE · INFERENCE RACKS');
-  S.z(20,476,1140,210,'EAST-WEST AND STORAGE · KV TRANSFER, WEIGHTS, CONTEXT MEMORY');
+  S.z(20,476,1140,210,P.ewZone||'EAST-WEST AND STORAGE · KV TRANSFER, WEIGHTS, CONTEXT MEMORY');
+  if(s.cflow&&!cflows()[s.cflow])s.cflow='';
   const xs=[50,330,610,890];
   S.n('inet',480,36,220,34,'Internet / backbone','',{cls:'ext sm'});
   S.n('fes1',200,92,300,40,'Frontend spine 1','border · load balancers',{cls:'sw',tone:'frontend',info:'fes'});
@@ -626,20 +662,30 @@ function sceneCluster(s){
   xs.forEach((x,i)=>{const r='rack'+(i+1),y=244,f='fel'+(i+1);
     S.n(f,x+30,152,170,38,'Frontend leaf '+(i+1),'top of rack',{cls:'sw',tone:'frontend',info:'fel'});
     S.l('frontend','fes1',['b',(i+1)/5],f,['t',.35]);S.l('frontend','fes2',['b',(i+1)/5],f,['t',.65]);
-    S.n(r,x,y,230,198,'Rack '+(i+1),'',{cls:'cont',labelTop:true,info:'rackpod'});
-    S.l('frontend',f,['b',.5],r,['t',.5],{label:'server DPUs'});
+    S.n(r,x,y,230,198,P.rackLabel?P.rackLabel(i):'Rack '+(i+1),'',{cls:'cont',labelTop:true,info:'rackpod'});
+    S.l('frontend',f,['b',.5],r,['t',.5],{label:P.fe||'server DPUs'});
+    if(P.wafer){
+      for(let j=0;j<3;j++){
+        S.n(r+'w'+j,x+36,y+30+j*54,180,44,'Backpack '+(j+1)+' · WSE-3 Turbo','wafer mesh · Wafer I/O Module',{cls:'sw sm',tone:'scaleup',info:'su',parent:r});
+        if(j)S.l('scaleup',r+'w'+(j-1),['b',.5],r+'w'+j,['t',.5],{label:'Direct Wafer Link · within the rack'});
+      }
+      if(i)S.l('scaleup','rack'+i,['r',.5],r,['l',.5],{label:'Direct Wafer Link · across racks, no switch'});
+      return;
+    }
     const ty=[y+28,y+58,y+126,y+156];
     ty.forEach((v,j)=>S.n(r+'n'+j,x+36,v,180,26,P.tray,'',{cls:'sm',info:'server',parent:r}));
     S.n(r+'su',x+36,y+92,180,26,P.su,'',{cls:'sm sw',tone:'scaleup',info:'su',parent:r});
     ty.forEach((v,j)=>S.l('scaleup',r+'n'+j,['l',.5],r+'su',['l',.5],{pts:[[x+20,v+13],[x+20,y+105]]}));
   });
-  S.n('be1',330,506,230,42,'East-west leaf 1','RDMA · 200–400G',{cls:'sw',tone:'scaleout',info:'be'});
-  S.n('be2',620,506,230,42,'East-west leaf 2','RDMA · 200–400G',{cls:'sw',tone:'scaleout',info:'be'});
-  xs.forEach((x,i)=>{S.l('scaleout','rack'+(i+1),['b',.42],'be1',['t',(i+1)/5],{label:'server RDMA NICs'});S.l('scaleout','rack'+(i+1),['b',.58],'be2',['t',(i+1)/5],{label:'server RDMA NICs'});});
+  S.n('be1',330,506,230,42,'East-west leaf 1',P.beSub||'RDMA · 200–400G',{cls:'sw',tone:'scaleout',info:'be'});
+  S.n('be2',620,506,230,42,'East-west leaf 2',P.beSub||'RDMA · 200–400G',{cls:'sw',tone:'scaleout',info:'be'});
+  xs.forEach((x,i)=>{S.l('scaleout','rack'+(i+1),['b',.42],'be1',['t',(i+1)/5],{label:P.ew||'server RDMA NICs'});S.l('scaleout','rack'+(i+1),['b',.58],'be2',['t',(i+1)/5],{label:P.ew||'server RDMA NICs'});});
   S.n('weights',50,610,320,60,'Model weights store','object storage',{tone:'storage'});
-  S.n('ctx',400,610,360,60,'Context memory storage','KV-cache tier · flash over RDMA',{tone:'storage'});
+  if(P.wafer)S.n('prefill',400,610,360,60,'Prefill engines · GPU or ASIC','AMD Helios · AWS Trainium',{cls:'gpu'});
+  else S.n('ctx',400,610,360,60,'Context memory storage','KV-cache tier · flash over RDMA',{tone:'storage'});
   S.n('ctrl',790,610,340,60,'Control plane','Kubernetes · gateway · router · autoscaler',{tone:'mgmt'});
-  S.l('storage','be1',['b',.2],'weights',['t',.6]);S.l('storage','be1',['b',.6],'ctx',['t',.3]);S.l('storage','be2',['b',.3],'ctx',['t',.7]);
+  S.l('storage','be1',['b',.2],'weights',['t',.6]);if(P.wafer){S.l('scaleout','be1',['b',.6],'prefill',['t',.3],{label:'prefill state over RoCE v2'});S.l('scaleout','be2',['b',.3],'prefill',['t',.7],{label:'prefill state over RoCE v2'});}
+  else{S.l('storage','be1',['b',.6],'ctx',['t',.3]);S.l('storage','be2',['b',.3],'ctx',['t',.7]);}
   S.l('mgmt','be2',['b',.8],'ctrl',['t',.4]);
   return S;
 }
@@ -684,9 +730,11 @@ function sceneNode(s){
 let scene=null;
 function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
 function resolve(v){return typeof v==='function'?v(state):v;}
+function cflows(){const o={},f=PLAT[state.plat].flows||{};for(const k in CFLOWS){if(f[k]===null)continue;o[k]=Object.assign({},CFLOWS[k],f[k]);}return o;}
+function infoOf(key,link){const o=state.view==='cluster'&&PLAT[state.plat].ov;return (o&&o[(link?'L:':'')+key])||resolve((link?LINKINFO:INFO)[key]);}
 function ltName(t){const v=state.view;
   if(v==='serve')return {frontend:'Request path',mgmt:'Control and metrics',storage:'Weights and KV storage',scaleout:'KV transfer · RDMA'}[t];
-  if(v==='cluster')return {frontend:'Frontend Ethernet · north-south',scaleout:'East-west RDMA',storage:'Storage I/O',scaleup:'Scale-up · '+PLAT[state.plat].short,mgmt:'Control'}[t];
+  if(v==='cluster')return {frontend:'Frontend Ethernet · north-south',scaleout:PLAT[state.plat].ewName||'East-west RDMA',storage:'Storage I/O',scaleup:'Scale-up · '+PLAT[state.plat].short,mgmt:'Control'}[t];
   return {pcie:'PCIe',scaleup:'Scale-up · NVLink',scaleout:'East-west RDMA',frontend:'Frontend Ethernet',mem:'Memory bus'}[t];}
 const dPath=pts=>'M'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join('L');
 
@@ -715,7 +763,7 @@ function findLink(a,b){return scene.links.findIndex(l=>(l.a===a&&l.b===b)||(l.a=
 function currentSeq(){
   if(state.view==='paths')return PATHS[state.path].seq;
   if(state.view==='serve'&&state.flow)return resolve(FLOWS[state.flow]).seq;
-  if(state.view==='cluster'&&state.cflow)return CFLOWS[state.cflow].seq;
+  if(state.view==='cluster'&&state.cflow)return cflows()[state.cflow]?.seq||null;
   return null;
 }
 function applyFocus(){
@@ -754,7 +802,7 @@ function drawControls(){
     cap=STACK[state.stack].tag;
   }else if(v==='cluster'){
     h=seg('Accelerator platform',Object.entries(PLAT).map(([k,x])=>[k,x.short]),state.plat,'plat')+
-      seg('Trace a flow',[['','Off'],...Object.entries(CFLOWS).map(([k,x])=>[k,x.label])],state.cflow,'cflow');
+      seg('Trace a flow',[['','Off'],...Object.entries(cflows()).map(([k,x])=>[k,x.label])],state.cflow,'cflow');
     cap=PLAT[state.plat].tag;
   }else if(v==='node'){
     h=seg('Weight precision',Object.entries(PREC).map(([k,x])=>[k,x.label]),state.prec,'prec');
@@ -790,11 +838,11 @@ function infoHTML(i){
 }
 function drawPanel(){
   const p=state.panel;let i,back=true;
-  if(p.kind==='node')i=resolve(INFO[p.key]);
-  else if(p.kind==='link')i=resolve(LINKINFO[p.key]);
+  if(p.kind==='node')i=infoOf(p.key);
+  else if(p.kind==='link')i=infoOf(p.key,true);
   else if(p.kind==='concept')i=CONCEPTS[p.key];
   else if(p.kind==='tech')i=p.key==='stack'?STACK[state.stack].info:p.key==='mode'?MODE[state.mode].info:PLAT[state.plat].info;
-  else if(p.kind==='flow'){if(state.view==='serve'&&state.flow)i=resolve(FLOWS[state.flow]);if(state.view==='cluster'&&state.cflow)i=CFLOWS[state.cflow];}
+  else if(p.kind==='flow'){if(state.view==='serve'&&state.flow)i=resolve(FLOWS[state.flow]);if(state.view==='cluster'&&state.cflow)i=cflows()[state.cflow];}
   if(!i&&state.view==='paths'){i=PATHS[state.path];back=false;}
   if(!i){i=INTRO[state.view];back=false;}
   let h=(back?'<button class="back" data-back="1">← Step overview</button>':'')+infoHTML(i);
@@ -833,7 +881,7 @@ function drawCompare(){
    ['Cloud ASIC','AWS Trainium 2 / 3, Inferentia 2','HBM','NeuronLink','Cost per token inside AWS','AWS Bedrock, Anthropic'],
    ['Cloud ASIC','Microsoft Maia, Meta MTIA, OpenAI with Broadcom','HBM','Ethernet-based','Tuned to one operator\'s models','Their owners'],
    ['SRAM, many chips','Groq LPU','On-chip SRAM','Direct chip-to-chip','Very fast, predictable decode','GroqCloud; technology licensed by NVIDIA'],
-   ['SRAM, wafer-scale','Cerebras WSE-3','44 GB on-wafer SRAM','On-wafer mesh','Fastest single-stream output','Cerebras cloud, OpenAI, Meta'],
+   ['SRAM, wafer-scale','Cerebras WSE-3 Turbo (CS-4)','44 GB SRAM per wafer, three wafers per rack','On-wafer mesh, Direct Wafer Links between wafers','Fastest single-stream output','Cerebras cloud, OpenAI, Meta'],
    ['Three-tier memory','SambaNova SN40L','SRAM + HBM + DDR','Ethernet','Many models held ready on one system','SambaNova Cloud'],
    ['LPDDR-based','Qualcomm AI200 / AI250, Intel Crescent Island','160–768 GB LPDDR per card','PCIe, Ethernet','Capacity and power efficiency over peak speed','Announced; early deployments'],
    ['Other startups','d-Matrix, Tenstorrent, Etched, Positron','Varies','Varies','Narrow, efficiency-focused designs','Pilots']])}</div>
@@ -899,7 +947,7 @@ document.addEventListener('click',e=>{
   if(t.dataset.act){const a=t.dataset.act,k=t.dataset.key;state.sel=null;state.iso=null;
     if(a==='stack'){state.stack=k;state.panel={kind:'tech',key:'stack'};}
     if(a==='mode'){state.mode=k;state.panel=state.flow?{kind:'flow'}:{kind:'tech',key:'mode'};}
-    if(a==='plat'){state.plat=k;state.panel={kind:'tech',key:'plat'};}
+    if(a==='plat'){state.plat=k;if(!cflows()[state.cflow])state.cflow='';state.panel={kind:'tech',key:'plat'};}
     if(a==='prec'){state.prec=k;state.panel={kind:'node',key:'segk'};}
     if(a==='flow'){state.flow=k;state.panel=k?{kind:'flow'}:{kind:'intro'};}
     if(a==='cflow'){state.cflow=k;state.panel=k?{kind:'flow'}:{kind:'intro'};}
@@ -922,7 +970,7 @@ svg.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDef
 svg.addEventListener('mousemove',e=>{
   const p=pick(e);let txt='';
   svg.querySelectorAll('.hv').forEach(x=>x.classList.remove('hv'));
-  if(p.node){const i=resolve(INFO[p.node.info]),name=p.node.label||p.node.aria||'';txt='<b>'+(name||i?.t||'')+'</b>'+(i&&name!==i.t?'<br>'+i.t:'');
+  if(p.node){const i=infoOf(p.node.info),name=p.node.label||p.node.aria||'';txt='<b>'+(name||i?.t||'')+'</b>'+(i&&name!==i.t?'<br>'+i.t:'');
     scene.links.forEach((l,ix)=>{if(l.a===p.node.id||l.b===p.node.id)svg.querySelector('.link[data-i="'+ix+'"]').classList.add('hv');});}
   else if(p.link){txt='<b>'+ltName(p.link.type)+'</b>'+(p.link.label?'<br>'+p.link.label:'');e.target.closest('.link').classList.add('hv');}
   svg.classList.toggle('hovering',!!svg.querySelector('.hv')&&!svg.classList.contains('focus'));
